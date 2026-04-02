@@ -1,8 +1,8 @@
 # ============================================================
-# Copilot+ PC — NPU Demo Setup Script
+# Copilot+ PC -- NPU Demo Setup Script
 # Works on Intel Core Ultra (x64) and Qualcomm Snapdragon (ARM64)
 # ============================================================
-# Run in PowerShell (admin NOT required — all installs are user-scope)
+# Run in PowerShell (admin NOT required -- all installs are user-scope)
 # ============================================================
 
 # --- Detect silicon ---
@@ -42,7 +42,7 @@ Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "  Copilot+ PC - NPU Demo Setup" -ForegroundColor Cyan
 Write-Host "  Detected: $cpuName" -ForegroundColor Cyan
-Write-Host "  Platform: $silicon — $chipLabel" -ForegroundColor Cyan
+Write-Host "  Platform: $silicon -- $chipLabel" -ForegroundColor Cyan
 Write-Host "  Model: $modelLabel ($modelAlias)" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
@@ -171,28 +171,50 @@ Write-Host ""
 # ============================================================
 Write-Host "Step 4: Verifying demo files..." -ForegroundColor Yellow
 
-$requiredFiles = @(
-    "npu_demo_flask.py",
-    "surface-logo.png",
-    "copilot-logo.avif"
-)
-
+# Check for exe (kit layout) or Python file (dev layout)
+$exePath = Join-Path $ScriptDir "app\npu-demo.exe"
+$pyPath = Join-Path $ScriptDir "npu_demo_flask.py"
 $missingFiles = @()
-foreach ($file in $requiredFiles) {
-    $filePath = Join-Path $ScriptDir $file
-    if (Test-Path $filePath) {
-        Write-Host "[OK] $file" -ForegroundColor Green
-    } else {
-        Write-Host "[MISSING] $file" -ForegroundColor Red
-        $missingFiles += $file
-    }
+
+if (Test-Path $exePath) {
+    Write-Host "[OK] npu-demo.exe (standalone app)" -ForegroundColor Green
+} elseif (Test-Path $pyPath) {
+    Write-Host "[OK] npu_demo_flask.py (Python app)" -ForegroundColor Green
+} else {
+    Write-Host "[MISSING] No app found (expected app\npu-demo.exe or npu_demo_flask.py)" -ForegroundColor Red
+    $missingFiles += "app"
 }
 
-# Check tesseract directory
-$tesseractDir = Join-Path $ScriptDir "tesseract"
-if (Test-Path $tesseractDir) {
-    Write-Host "[OK] tesseract/ (offline OCR)" -ForegroundColor Green
-} else {
+# Check for demo data and tesseract in both layouts
+$demoDataPaths = @(
+    (Join-Path $ScriptDir "app\_internal\demo_data"),
+    (Join-Path $ScriptDir "demo_data")
+)
+$foundDemoData = $false
+foreach ($dd in $demoDataPaths) {
+    if (Test-Path $dd) {
+        Write-Host "[OK] demo_data/" -ForegroundColor Green
+        $foundDemoData = $true
+        break
+    }
+}
+if (-not $foundDemoData) {
+    Write-Host "[WARN] demo_data/ not found" -ForegroundColor Yellow
+}
+
+$tesseractPaths = @(
+    (Join-Path $ScriptDir "app\_internal\tesseract"),
+    (Join-Path $ScriptDir "tesseract")
+)
+$foundTesseract = $false
+foreach ($tp in $tesseractPaths) {
+    if (Test-Path $tp) {
+        Write-Host "[OK] tesseract/ (offline OCR)" -ForegroundColor Green
+        $foundTesseract = $true
+        break
+    }
+}
+if (-not $foundTesseract) {
     Write-Host "[WARN] tesseract/ not found (ID Verification tab will need online OCR)" -ForegroundColor Yellow
 }
 
@@ -258,17 +280,54 @@ if (Test-Path $msixPath) {
     } else {
         Write-Host "Installing Vision Service MSIX..." -ForegroundColor Cyan
 
-        # Step 7a: Create and trust the signing certificate
+        # Step 7a: Install signing certificate in both Trusted Root CA and Trusted People
+        # MSIX requires the self-signed cert in BOTH stores
         Write-Host "   Setting up signing certificate..." -ForegroundColor Gray
+        $certFile = $null
+        # Look for .cer file in the MSIX test directory
+        $cerSearch = Get-ChildItem -Path $msixTestDir -Filter "*.cer" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($cerSearch) {
+            $certFile = $cerSearch.FullName
+        } else {
+            # Try the scripts directory
+            $cerSearch2 = Get-ChildItem -Path (Join-Path $visionServiceDir "scripts") -Filter "*.cer" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($cerSearch2) { $certFile = $cerSearch2.FullName }
+        }
+
+        # Also try the existing setup-cert.ps1 script first
         $certScript = Join-Path $visionServiceDir "scripts\setup-cert.ps1"
         if (Test-Path $certScript) {
             try {
-                & $certScript
-                Write-Host "   [OK] Certificate configured" -ForegroundColor Green
+                & $certScript 2>&1 | Out-Null
+            } catch { }
+        }
+
+        # Manually install cert to both required stores (needs elevation)
+        if ($certFile -and (Test-Path $certFile)) {
+            Write-Host "   Installing cert to Trusted Root CA and Trusted People..." -ForegroundColor Gray
+            try {
+                $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certFile)
+                # Trusted Root Certificate Authorities (LocalMachine)
+                $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "LocalMachine")
+                $rootStore.Open("ReadWrite")
+                $rootStore.Add($cert)
+                $rootStore.Close()
+                # Trusted People (LocalMachine)
+                $peopleStore = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPeople", "LocalMachine")
+                $peopleStore.Open("ReadWrite")
+                $peopleStore.Add($cert)
+                $peopleStore.Close()
+                Write-Host "   [OK] Certificate installed in Trusted Root CA + Trusted People" -ForegroundColor Green
             } catch {
-                Write-Host "   [WARN] Certificate setup needs admin. Run manually:" -ForegroundColor Yellow
-                Write-Host "      powershell -ExecutionPolicy Bypass -File `"$certScript`"" -ForegroundColor Cyan
+                Write-Host "   [WARN] Certificate install needs admin privileges. Run PowerShell as Administrator and re-run setup.ps1" -ForegroundColor Yellow
+                Write-Host "   Or manually import the cert:" -ForegroundColor Yellow
+                Write-Host "      1. Right-click $certFile > Install Certificate" -ForegroundColor Cyan
+                Write-Host "      2. Choose 'Local Machine' > 'Trusted Root Certification Authorities'" -ForegroundColor Cyan
+                Write-Host "      3. Repeat and choose 'Trusted People'" -ForegroundColor Cyan
             }
+        } else {
+            Write-Host "   [WARN] No .cer file found. Vision Service MSIX may fail to install." -ForegroundColor Yellow
+            Write-Host "   Enable Developer Mode as an alternative: Settings > System > For developers" -ForegroundColor Cyan
         }
 
         # Step 7b: Install Windows App Runtime 1.8 dependency
@@ -284,7 +343,7 @@ if (Test-Path $msixPath) {
                     Add-AppxPackage -Path $runtimeMsix -ErrorAction SilentlyContinue
                     Write-Host "   [OK] Windows App Runtime installed from MSIX" -ForegroundColor Green
                 } catch {
-                    Write-Host "   [WARN] Runtime install failed — Vision Service may not start" -ForegroundColor Yellow
+                    Write-Host "   [WARN] Runtime install failed -- Vision Service may not start" -ForegroundColor Yellow
                 }
             }
         }
@@ -317,22 +376,45 @@ Write-Host ""
 # ============================================================
 # Step 8: Pre-download model (optional but saves time on first run)
 # ============================================================
-Write-Host "Step 8: Checking model availability..." -ForegroundColor Yellow
+Write-Host "Step 8: Pre-downloading model..." -ForegroundColor Yellow
 
 if ($foundryInstalled) {
     try {
+        # Check if model is already cached by starting service briefly
+        foundry service start 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+
         $modelList = foundry model list 2>&1
         if ($modelList -match $modelAlias) {
             Write-Host "[OK] $modelLabel ($modelAlias) is available in Foundry catalog" -ForegroundColor Green
-            Write-Host "   First run will download the model (~3 GB) if not already cached" -ForegroundColor Gray
+            Write-Host "   Pre-downloading model to avoid delay on first demo..." -ForegroundColor Gray
+            Write-Host "   (This may take a few minutes for ~3 GB download)" -ForegroundColor Gray
+            try {
+                # Loading the model via chat triggers the download if not cached
+                $testResult = python -c @"
+from foundry_local import FoundryLocalManager
+mgr = FoundryLocalManager()
+model_id = mgr.download_model('$modelAlias')
+print(f'OK: {model_id}')
+"@ 2>&1
+                if ($testResult -match "OK:") {
+                    Write-Host "[OK] Model downloaded and cached: $testResult" -ForegroundColor Green
+                } else {
+                    Write-Host "[INFO] Model will download on first app launch" -ForegroundColor Gray
+                }
+            } catch {
+                Write-Host "[INFO] Model will download on first app launch (~3 GB)" -ForegroundColor Gray
+            }
         } else {
             Write-Host "[WARN] $modelAlias not found in catalog" -ForegroundColor Yellow
         }
+
+        foundry service stop 2>&1 | Out-Null
     } catch {
         Write-Host "[SKIP] Could not check model catalog" -ForegroundColor Gray
     }
 } else {
-    Write-Host "[SKIP] Foundry Local not installed — skipping model check" -ForegroundColor Gray
+    Write-Host "[SKIP] Foundry Local not installed -- skipping model download" -ForegroundColor Gray
 }
 
 Write-Host ""
@@ -345,7 +427,7 @@ Write-Host "  Setup Complete" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Silicon:  $cpuName" -ForegroundColor White
-Write-Host "  Platform: $silicon — $chipLabel" -ForegroundColor White
+Write-Host "  Platform: $silicon -- $chipLabel" -ForegroundColor White
 Write-Host "  Model:    $modelLabel ($modelAlias)" -ForegroundColor White
 Write-Host ""
 
@@ -354,23 +436,17 @@ if ($missingFiles.Count -gt 0) {
     Write-Host ""
 }
 
-Write-Host "To run the demo:" -ForegroundColor Green
+Write-Host "To launch the demo (starts all 3 services + opens browser):" -ForegroundColor Green
 Write-Host ""
-Write-Host "   cd `"$ScriptDir`"" -ForegroundColor Cyan
-Write-Host "   python npu_demo_flask.py" -ForegroundColor Cyan
+Write-Host "   .\start-demo.ps1" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "   Or double-click: run.bat" -ForegroundColor Cyan
+Write-Host "To stop all services:" -ForegroundColor Green
 Write-Host ""
-Write-Host "Then open: http://localhost:5000" -ForegroundColor Cyan
+Write-Host "   .\stop-demo.ps1" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "For Field Inspection vision features (Phi Silica):" -ForegroundColor Green
-Write-Host "   1. Provision Phi Silica: open VS Code AI Toolkit > Model Catalog >" -ForegroundColor Cyan
-Write-Host "      find Phi Silica > Playground > send a test message (one-time)" -ForegroundColor Cyan
-Write-Host "   2. Launch the Vision Service:" -ForegroundColor Cyan
-Write-Host "      powershell -File `"$ScriptDir\vision-service\scripts\launch-vision.ps1`"" -ForegroundColor Cyan
+Write-Host "Or start manually:" -ForegroundColor Gray
+Write-Host "   python npu_demo_flask.py    (Flask app on localhost:5000)" -ForegroundColor Gray
 Write-Host ""
-Write-Host "No VS Code or AI Toolkit required for the main app!" -ForegroundColor Green
-Write-Host "(AI Toolkit is only needed once to provision the Phi Silica model)" -ForegroundColor Gray
 Write-Host "Silicon auto-detected: the app will brand itself for $chipLabel." -ForegroundColor Gray
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan

@@ -1,138 +1,62 @@
 BEGIN:VCALENDAR
 VERSION:2.0
-PRODID:-//Microsoft//Outlook 16.0//EN
+PRODID:-//Flagstar Bank//Branch of the Future//EN
 BEGIN:VEVENT
-DTSTART:20260207T080000
-DTEND:20260207T083000
-SUMMARY:Breakfast with Kevin — AV Walkthrough
-LOCATION:Fairmont San Jose — Fountain Restaurant
-DESCRIPTION:Quick breakfast to review AV setup for tonight's event at Mountain Winery.\n\nKEY ITEMS:\n- Kevin confirming projector and screen placement at demo stations\n- WiFi situation at venue (demos run offline, but need connectivity for setup)\n- Kevin handling Station 2 (ID Verification), Jack on Station 3 (Document Intelligence)\n- Jack arrives at hotel by 9 AM\n\nORDER: Kevin likes the eggs benedict here.
+DTSTART:20260327T090000
+DTEND:20260327T093000
+SUMMARY:Team Huddle -- Branch Operations
+LOCATION:Troy Branch -- Break Room
+DESCRIPTION:Daily morning standup with branch staff.\n\nAGENDA:\n1. Yesterday's highlights (3 new account openings)\n2. Today's appointment schedule\n3. Compliance reminder: new BSA/AML procedures effective this week\n4. Jackie Rodriguez follow-up (referred by existing member C-20198)\n\nNOTE: Regional manager visiting Friday -- make sure branch is audit-ready.
 STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
-DTSTART:20260207T093000
-DTEND:20260207T101500
-SUMMARY:Call — Rachel Martinez, CEO Apex Dynamics
+DTSTART:20260327T100000
+DTEND:20260327T103000
+SUMMARY:Portfolio Review -- Henderson Family
+LOCATION:Troy Branch -- Conference Room A
+ORGANIZER;CN=Thomas Henderson:mailto:t.henderson@email.com
+DESCRIPTION:Quarterly portfolio review with Tom and Maria Henderson.\n\nACCOUNT SUMMARY:\n- Joint checking: ****7823 ($12,450)\n- Savings: ****7824 ($45,200)\n- IRA (Tom): ****9901 ($182,000)\n- IRA (Maria): ****9902 ($156,000)\n- 529 Plan (Dylan, age 12): ****5501 ($67,800)\n\nDISCUSSION POINTS:\n1. Tom asking about Roth conversion -- income may qualify this year\n2. Maria wants to increase 529 contributions for Dylan\n3. Estate planning referral -- they mentioned updating their will\n4. CD maturation next month -- $25,000 at 3.8%, discuss renewal rate\n\nPREP: Pull latest IRA performance report from D365.
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20260327T110000
+DTEND:20260327T113000
+SUMMARY:Compliance Training Webinar
 LOCATION:Virtual (Teams)
-ORGANIZER;CN=Rachel Martinez:mailto:rmartinez@apexdynamics.com
-DESCRIPTION:Quarterly sync with Rachel on AI partnership progress.\n\nAGENDA:\n1. Review pilot results from Apex healthcare division\n2. Discuss expanding on-device AI to Apex financial services vertical\n3. Rachel mentioned interest in NPU hardware refresh for her executive team\n4. Budget approval timeline — she needs board sign-off by end of Q1\n\nNOTE: Rachel's birthday is February 15. She loved the Mountain Winery wines when you visited Saratoga last year. Consider ordering a case of the Estate Cabernet during tonight's wine tasting.\n\nPREP: Review the pilot metrics deck Alex sent last week.
+DESCRIPTION:Mandatory quarterly compliance training.\n\nTOPIC: Updated KYC/CDD procedures for high-risk accounts.\n\nNOTE: Must complete before Friday or branch gets flagged. Certificate of completion auto-sent to regional.
 STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
-DTSTART:20260207T103000
-DTEND:20260207T113000
-SUMMARY:Team Huddle — Event Prep
-LOCATION:Fairmont San Jose — Conference Room B
-ORGANIZER;CN=Sandra Mitchell:mailto:smitchell@microsoft.com
-ATTENDEE;CN=Frank Buchholz:mailto:frankbu@microsoft.com
-ATTENDEE;CN=Jack Rivera:mailto:jrivera@microsoft.com
-ATTENDEE;CN=Kevin Park:mailto:kpark@microsoft.com
-DESCRIPTION:Final walkthrough for tonight's executive event at Mountain Winery.\n\nAGENDA:\n1. Confirm demo station assignments (Frank on AI Agent station)\n2. Device giveaway logistics (10 Surface Laptop 7, 10 Surface Pro 11)\n3. Guest seating — 42 confirmed RSVPs\n4. Car service logistics (team van departs 1:15 PM)\n5. Timeline review: wine tasting 5 PM, dinner 6:30 PM, demos 8:30 PM\n\nACTION: Frank — have the NPU demo app tested and ready. Sandra wants a dry run at 2 PM at the venue.\n\nNOTE: Sandra sent updated guest list this morning. 42 confirmed. David Park (Contoso) and James Liu (board) both confirmed.
+DTSTART:20260327T120000
+DTEND:20260327T130000
+SUMMARY:Lunch
+LOCATION:Break
 STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
-DTSTART:20260207T120000
-DTEND:20260207T130000
-SUMMARY:Prep Window — Priority Items
-LOCATION:Fairmont San Jose — Room 1412
-DESCRIPTION:Blocked time to handle outstanding items before heading to the venue.\n\nMUST DO:\n1. Reply to Sarah Chen re: Q4 APAC numbers (she messaged last night — needs before Monday)\n2. Read Jessica Torres' NDA flag — CRITICAL before seeing David Park tonight\n3. Skim Alex Kim's AI governance deck — James Liu will ask about this tonight\n4. Review guest list — know who's at your table\n\nPACK: Surface Laptop 7 and Surface Pro 11 demo units from room safe. Chargers and display adapters. Don't forget the USB-C hub.
+DTSTART:20260327T140000
+DTEND:20260327T150000
+SUMMARY:New Client Meeting -- Jackie Rodriguez
+LOCATION:Troy Branch -- Conference Room A
+ORGANIZER;CN=Jackie Rodriguez:mailto:jackie.rodriguez@email.com
+DESCRIPTION:Initial consultation with Jackie Rodriguez (new client, referred by existing member).\n\nBACKGROUND:\n- Recently relocated from out of state\n- Interested in Essential Checking + 529 College Savings Plan\n- Two children: Maya (8) and Daniel (15)\n- Has old 401k from previous employer to discuss\n- Husband may join later for joint account discussion\n\nPRODUCTS TO DISCUSS:\n1. Essential Checking (no minimum, no monthly fee with direct deposit)\n2. 529 Plan for Maya (2026 contribution limit: $18,000/beneficiary)\n3. Roth IRA conversion from old 401k\n4. High-Yield Savings for emergency fund\n\nPREP: Pull 529 contribution limits sheet. Have account application ready.\nID VERIFICATION: Will need valid photo ID for new account opening.\n\nREFERRAL NOTE: Referred by member C-20198. Log referral credit in D365.
 STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
-DTSTART:20260207T131500
-DTEND:20260207T140000
-SUMMARY:Car to Mountain Winery
-LOCATION:Fairmont San Jose — Main Lobby
-DESCRIPTION:Team van departing from hotel lobby. Driver: Michael Torres, black Suburban.\n\nROUTE: Fairmont San Jose to CA-85 S to Big Basin Way to Pierce Road to Mountain Winery.\nDRIVE TIME: ~25 minutes (weekend traffic should be light).\n\nEveryone rides together: Frank, Sandra, Jack, Kevin.\nDemo equipment goes in the back — two Surface Laptop 7, two Surface Pro 11, display adapters, power strips.\n\nNOTE: Return car for Frank only at end of evening (after late dinner with David Park). Rest of team takes earlier van back.
+DTSTART:20260327T153000
+DTEND:20260327T160000
+SUMMARY:Call -- Regional Manager Update
+LOCATION:Virtual (Teams)
+ORGANIZER;CN=Patricia Wells:mailto:p.wells@flagstar.com
+DESCRIPTION:Weekly check-in with Patricia Wells (Regional Manager).\n\nTOPICS:\n1. Branch performance metrics (YTD: 87 new accounts, target 100)\n2. Surface Pro deployment update -- 7 units received, 7 more pending\n3. AI demo feedback from executive visit\n4. Staffing: need one more part-time teller for summer\n\nPREP: Have branch numbers ready from D365 dashboard.
 STATUS:CONFIRMED
 END:VEVENT
 BEGIN:VEVENT
-DTSTART:20260207T140000
-DTEND:20260207T153000
-SUMMARY:Dry Run — AI Agent Demo
-LOCATION:The Mountain Winery — Demo Station 1
-ORGANIZER;CN=Sandra Mitchell:mailto:smitchell@microsoft.com
-DESCRIPTION:Full dry run of the NPU AI Agent demo at the venue.\n\nCHECKLIST:\n- Launch Flask app, verify both tabs load\n- Test Brief Me flow end-to-end\n- Test Go Offline (WiFi toggle) — verify it works and recovers\n- Test agent chat with live commands\n- Confirm display adapter works with venue screen\n- Verify demo files staged in Documents Demo folder\n\nSandra wants to see the permission workflow — the governed agent piece.\n\nFALLBACK: If AI Agent has issues, pivot to ID Verification tab — camera plus OCR is reliable and still impressive.
-STATUS:CONFIRMED
-END:VEVENT
-BEGIN:VEVENT
-DTSTART:20260207T170000
-DTEND:20260207T183000
-SUMMARY:Guest Arrival & Wine Tasting on the Terrace
-LOCATION:The Mountain Winery — Main Terrace
-DESCRIPTION:Guests arrive at Mountain Winery. Wine tasting and appetizers on the terrace with panoramic views of the Santa Cruz Mountains.\n\nENTERTAINMENT: Sandra booked a live acoustic set by Kayleigh Rose Amstutz — she goes by a stage name but she's incredible, rising midwest artist. Performing during the wine tasting hour on the terrace. Sandra says she's a huge deal right now. She'll do 4-5 songs.\n\nSPECIAL COCKTAIL: The venue created a "Red Wine Supernova" signature cocktail for the event — cabernet with edible gold shimmer. Very on-brand for the evening.\n\nSTRATEGY:\n- Work the room during this hour — 1:1 conversations happen here\n- Key people to connect with: David Park (Contoso), James Liu (board), Dr. Sarah Okafor (Meridian Health)\n- Sandra will make introductions for guests you haven't met\n- Device display near entrance — guests will naturally browse\n\nAVOID: Don't get pulled into a long demo during wine tasting. Save the AI Agent walkthrough for demo stations after dinner.\n\nWINE NOTE: Mountain Winery Estate Cabernet is excellent — consider ordering a case for Rachel Martinez birthday (Feb 15).
-STATUS:CONFIRMED
-END:VEVENT
-BEGIN:VEVENT
-DTSTART:20260207T183000
-DTEND:20260207T203000
-SUMMARY:Dinner & Fireside Discussion
-LOCATION:The Mountain Winery — Chateau
-DESCRIPTION:Seated dinner in the historic chateau with fireside discussion prompts at each table.\n\nTABLE TOPICS (printed cards):\n- What would change if your AI assistant couldn't leak data by design?\n- Would you give an AI agent permission to act on your files? Under what rules?\n- What's the last thing you'd move to the cloud?\n\nFrank is at Table 3 with: David Park (Contoso CEO), James Liu (board member), Dr. Sarah Okafor (Meridian Health CEO), Tom Bradley (Whitfield Capital CIO).\n\nWARNING: Jessica Torres flagged the Contoso NDA — do NOT discuss specific partnership terms or M&A with David Park until Section 7.3 non-compete clause is resolved.\n\nNOTE: Be present. Don't pitch — listen, then offer to show the demo after dinner.
-STATUS:CONFIRMED
-END:VEVENT
-BEGIN:VEVENT
-DTSTART:20260207T203000
-DTEND:20260207T220000
-SUMMARY:Demo Stations & Device Showcase
-LOCATION:The Mountain Winery — Demo Hall
-DESCRIPTION:Three demo stations open for hands-on exploration.\n\nSTATION 1: AI Agent — My Day briefing plus governed execution (FRANK)\nSTATION 2: ID Verification — on-device document scanning (Kevin)\nSTATION 3: Document Intelligence — PDF analysis plus summarization (Jack)\n\nGUESTS BROWSE FREELY. Keep demos under 90 seconds unless they ask for more.\n\nDEVICE GIVEAWAYS: 10 Surface Laptop 7 and 10 Surface Pro 11 with 5G. Sandra handles distribution during wrap-up.\n\nKILLER DEMO MOMENT: Run Brief Me then show governed execution then kill WiFi live then continue without pause.\n\nFALLBACK: If AI Agent has issues, pivot to ID Verification or basic chat.\n\nBACKGROUND MUSIC: Kevin has the playlist — mix of chill indie and pop. He put "Good Luck, Babe!" and "Hot To Go!" on there which is perfect energy for demos. Also has some Sabrina Carpenter ("Espresso") for the transition between stations.
-STATUS:CONFIRMED
-END:VEVENT
-BEGIN:VEVENT
-DTSTART:20260207T223000
-DTEND:20260208T003000
-SUMMARY:Late Dinner — David Park
-LOCATION:The Plumed Horse — 14555 Big Basin Way, Saratoga
-DESCRIPTION:Private dinner with David Park (Contoso CEO) at The Plumed Horse, Michelin-starred restaurant 5 minutes from Mountain Winery.\n\nCONTEXT: David's EA Lisa mentioned he wants to discuss partnership expansion and deeper strategic alignment. This likely signals M&A interest.\n\nCRITICAL WARNING: Jessica Torres (Legal) flagged the Contoso NDA this morning. Section 7.3 non-compete clause is too broad. Do NOT discuss specific M&A terms, valuation, or binding commitments. Keep conversation relationship-focused.\n\nSAFE TOPICS: Industry trends, on-device AI vision, Contoso healthcare vertical needs, his experience at tonight's event.\nUNSAFE TOPICS: Partnership terms, exclusivity, timeline, valuation.\n\nRESERVATION: 10:30 PM, 2 guests, under Buchholz. Confirmed by Sandra.\n\nNOTE FROM SANDRA: "Good luck, babe! Keep it casual tonight. You'll be a femininomenon." (I think she's been listening to too much Chappell Roan.)\n\nCAR: Michael Torres (same driver) will wait at Mountain Winery. Drop David at The Westin San Jose after dinner, then to Fairmont.
-STATUS:CONFIRMED
-END:VEVENT
-BEGIN:VEVENT
-DTSTART:20260208T070000
-DTEND:20260208T090000
-SUMMARY:Morning Bike Ride with Tadej Pogačar
-LOCATION:Meet at Fairmont San Jose — Valet Entrance
-DESCRIPTION:Tadej is in town for a Trek Bikes sponsor event and agreed to a casual Sunday morning ride.\n\nROUTE: Fairmont to Guadalupe River Trail, south to Los Gatos Creek Trail, loop back via The Alameda. ~28 miles, mostly flat.\n\nPACE: He promised to keep it "casual" but this is a three-time Tour de France champion so bring your A-game. He said he'd ride his gravel bike to keep it fair.\n\nGEAR: Kevin dropped off the Trek Domane from the hotel bike rental last night. Helmet, kit, and shoes in the closet. Garmin is charged.\n\nNOTE: Tadej mentioned he's a huge Chappell Roan fan — apparently "HOT TO GO!" is his pre-race pump-up song. He heard she might be performing at halftime today. Ask him about it on the ride.\n\nFUEL: Quick espresso at the hotel before departure. Post-ride brunch planned at the hotel.
-STATUS:CONFIRMED
-END:VEVENT
-BEGIN:VEVENT
-DTSTART:20260208T093000
-DTEND:20260208T100000
-SUMMARY:Post-Ride Brunch at Hotel
-LOCATION:Fairmont San Jose — Fountain Restaurant
-DESCRIPTION:Recovery brunch after the bike ride. Tadej might join if his schedule allows.\n\nPROTEIN: Order the egg white frittata. You earned it.\n\nPREP: Shower and change for the rest of the day. Super Bowl outfit is hanging in the closet — Sandra picked out the blue Surface polo and the Copilot+ jacket. She said "it's giving Pink Pony Club energy" which you're choosing not to question.
-STATUS:CONFIRMED
-END:VEVENT
-BEGIN:VEVENT
-DTSTART:20260208T113000
-DTEND:20260208T133000
-SUMMARY:Lunch with Tom Brady & Troy Aikman
-LOCATION:Forthright Oyster Bar — 420 S California Ave, Palo Alto
-DESCRIPTION:Pre-game lunch with Tom Brady and Troy Aikman. Both are in town for Fox Sports Super Bowl coverage.\n\nCONTEXT: Tom and Troy are doing the Fox broadcast tomorrow — wait, no, TODAY. Tom is the lead analyst now. Troy is doing studio work this year.\n\nTALKING POINTS:\n1. Tom is interested in AI for sports analytics — he's invested in a startup doing real-time play prediction\n2. Troy wants to understand on-device AI for broadcast production — latency matters for live TV\n3. Both have been briefed on Copilot+ PC by their Fox Sports tech team\n4. Mention the NPU demo from last night — offer to show them on your Surface\n\nFUN FACT: Troy mentioned he's been listening to Chappell Roan nonstop since his daughters got him hooked. His favorite is "Casual" — he says it reminds him of how the Cowboys treated his retirement.\n\nRESERVATION: 11:30 AM, 3 guests, under Buchholz. Patio seating confirmed.\n\nDRINKS: Tom doesn't drink during the season (old habit) but Troy will have wine. The Forthright has a great Sonoma Pinot Noir.\n\nCAR: Michael Torres picking up at 11:00 AM from Fairmont. 20 min drive to Palo Alto.
-STATUS:CONFIRMED
-END:VEVENT
-BEGIN:VEVENT
-DTSTART:20260208T140000
-DTEND:20260208T143000
-SUMMARY:Car to Levi's Stadium
-LOCATION:Forthright Oyster Bar — pickup out front
-DESCRIPTION:Michael Torres picking up from restaurant. Drive to Levi's Stadium in Santa Clara.\n\nDRIVE TIME: ~15 minutes from Palo Alto.\n\nPARKING: VIP lot — Blue Zone, Row A. Pass is in the glove compartment. Michael will drop at the VIP entrance on Tasman Drive.\n\nSUNSCREEN: It's February but this is California. The suite has shade but you'll be walking the concourse.\n\nPLAYLIST FOR THE DRIVE: Michael has the aux — he's been playing "Good Luck, Babe!" on repeat all weekend. At this point the whole team knows every word.
-STATUS:CONFIRMED
-END:VEVENT
-BEGIN:VEVENT
-DTSTART:20260208T153000
-DTEND:20260208T200000
-SUMMARY:Super Bowl LX — Company Suite
-LOCATION:Levi's Stadium — Suite 4412, Santa Clara, CA
-DESCRIPTION:SUPER BOWL SUNDAY! Game time 3:30 PM PT.\n\nSUITE DETAILS:\n- Suite 4412, Club Level, 50-yard line\n- Capacity: 24 guests. Sandra has the final guest list.\n- Catering: Full spread — sliders, wings, nachos, sushi. Premium bar.\n- Sandra arranged a special "Midwest Princess" themed dessert table with pink frosted cupcakes\n\nGUEST LIST HIGHLIGHTS:\n- David Park (Contoso CEO) + wife\n- James Liu (board member)\n- Rachel Martinez (Apex Dynamics CEO)\n- Dr. Sarah Okafor (Meridian Health)\n- Kevin Park + Jack Rivera (your team)\n- Sandra Mitchell + 3 partners from Whitfield Capital\n\nHALFTIME: Chappell Roan is the halftime performer! This is going to be incredible. She's reportedly doing Pink Pony Club, Good Luck Babe, HOT TO GO!, Red Wine Supernova, and a new unreleased track. The whole stadium will be doing the HOT TO GO dance.\n\nDEMO OPPORTUNITY: David Park and James Liu will both be in the suite. Casual setting to continue last night's conversation. Have the Surface Laptop ready in your bag — if the conversation turns to AI, you can do a quick demo.\n\nWARNING: Same NDA constraint with David Park applies. Keep it casual — Sandra's words: "It's the Super Bowl, not a board meeting. Be a femininomenon, not a sales machine."\n\nPOST-GAME: Suite access until 8 PM. Traffic will be brutal — Michael Torres has a staged exit plan through the VIP lot.
-STATUS:CONFIRMED
-END:VEVENT
-BEGIN:VEVENT
-DTSTART:20260208T203000
-DTEND:20260208T223000
-SUMMARY:Post-Game Dinner — Team Celebration
-LOCATION:The Bywater — 532 N Santa Cruz Ave, Los Gatos
-DESCRIPTION:Casual team dinner to celebrate a great weekend. Win or lose, this has been an incredible few days.\n\nWHO: Frank, Sandra, Kevin, Jack, plus any guests who want to join.\n\nVIBE: New Orleans-style spot in Los Gatos. Sandra picked it because "the aesthetic is very After Midnight" (another Chappell Roan reference — she's committed to the bit at this point).\n\nNOTE: This is the last evening before heading home Monday. Flight is at 11:45 AM.\n\nORDER: The jambalaya is incredible. Kevin says the beignets are life-changing.\n\nRESERVATION: 8:30 PM, 6 guests (flexible), under Mitchell.
+DTSTART:20260327T163000
+DTEND:20260327T170000
+SUMMARY:End of Day -- CRM Notes & Follow-ups
+LOCATION:Troy Branch -- Desk
+DESCRIPTION:Daily wrap-up: enter meeting notes into D365, queue follow-up tasks.\n\nTODO:\n- Log Jackie Rodriguez meeting notes and next steps\n- Update Henderson portfolio review in CRM\n- Send 529 contribution limits to Jackie via secure email\n- Schedule Jackie follow-up for next Thursday\n- Review tomorrow's appointment calendar
 STATUS:CONFIRMED
 END:VEVENT
 END:VCALENDAR

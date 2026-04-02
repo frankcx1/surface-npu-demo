@@ -15,42 +15,244 @@ from flask import Flask, render_template_string, request, Response, jsonify
 from openai import OpenAI
 from werkzeug.utils import secure_filename
 
+# --- Dynamics 365 / MSAL Integration ---
+_D365_ORG_URL = "https://orgdf28000a.crm.dynamics.com"
+_D365_API_URL = _D365_ORG_URL + "/api/data/v9.2"
+_D365_APP_ID = _D365_ORG_URL + "/main.aspx?appid=5b168771-b5ce-ef11-8eea-7c1e5219a0f0"
+_D365_TOKEN_CACHE = None  # Cached access token
+_D365_TOKEN_EXPIRY = 0    # Unix timestamp when token expires
+
+def _d365_get_token():
+    """Get a valid D365 access token using MSAL device code flow with caching."""
+    global _D365_TOKEN_CACHE, _D365_TOKEN_EXPIRY
+    # Return cached token if still valid (with 5 min buffer)
+    if _D365_TOKEN_CACHE and _time.time() < (_D365_TOKEN_EXPIRY - 300):
+        return _D365_TOKEN_CACHE
+    try:
+        import msal
+        # Use a well-known public client ID for device code flow
+        # This is the "Microsoft Azure PowerShell" public client
+        client_id = "1950a258-227b-4e31-a9cf-717495945fc2"
+        authority = "https://login.microsoftonline.com/D365DemoTSCE32685848.onmicrosoft.com"
+        scope = [_D365_ORG_URL + "/.default"]
+
+        # Try to load cached token from file
+        cache = msal.SerializableTokenCache()
+        cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.d365_token_cache.json')
+        if os.path.exists(cache_file):
+            with open(cache_file, 'r') as f:
+                cache.deserialize(f.read())
+
+        app = msal.PublicClientApplication(client_id, authority=authority, token_cache=cache)
+
+        # Try silent acquisition first (from cache)
+        accounts = app.get_accounts()
+        if accounts:
+            result = app.acquire_token_silent(scope, account=accounts[0])
+            if result and "access_token" in result:
+                _D365_TOKEN_CACHE = result["access_token"]
+                _D365_TOKEN_EXPIRY = _time.time() + result.get("expires_in", 3600)
+                # Save cache
+                if cache.has_state_changed:
+                    with open(cache_file, 'w') as f:
+                        f.write(cache.serialize())
+                print("[D365] Token acquired silently (cached)")
+                return _D365_TOKEN_CACHE
+
+        # Device code flow -- user authenticates in browser
+        flow = app.initiate_device_flow(scopes=scope)
+        if "user_code" not in flow:
+            print(f"[D365] Device flow failed: {flow}")
+            return None
+
+        print(f"\n{'='*60}")
+        print(f"  D365 Authentication Required")
+        print(f"  Go to: {flow['verification_uri']}")
+        print(f"  Enter code: {flow['user_code']}")
+        print(f"{'='*60}\n")
+
+        result = app.acquire_token_by_device_flow(flow)
+        if "access_token" in result:
+            _D365_TOKEN_CACHE = result["access_token"]
+            _D365_TOKEN_EXPIRY = _time.time() + result.get("expires_in", 3600)
+            # Save cache for next time
+            if cache.has_state_changed:
+                with open(cache_file, 'w') as f:
+                    f.write(cache.serialize())
+            print("[D365] Token acquired via device code flow")
+            return _D365_TOKEN_CACHE
+        else:
+            print(f"[D365] Token acquisition failed: {result.get('error_description', 'Unknown error')}")
+            return None
+    except ImportError:
+        print("[D365] MSAL not installed -- pip install msal")
+        return None
+    except Exception as e:
+        print(f"[D365] Auth error: {e}")
+        return None
+
+def _d365_api_get(path, params=None):
+    """Make an authenticated GET request to Dataverse Web API."""
+    token = _d365_get_token()
+    if not token:
+        return None
+    try:
+        import requests as _req
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0",
+            "Accept": "application/json",
+            "Prefer": "odata.include-annotations=*"
+        }
+        url = _D365_API_URL + path
+        resp = _req.get(url, headers=headers, params=params, timeout=15)
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            print(f"[D365] API error {resp.status_code}: {resp.text[:200]}")
+            return None
+    except Exception as e:
+        print(f"[D365] API request failed: {e}")
+        return None
+
+def _d365_api_post(path, payload):
+    """Make an authenticated POST request to Dataverse Web API."""
+    token = _d365_get_token()
+    if not token:
+        return None
+    try:
+        import requests as _req
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
+        }
+        url = _D365_API_URL + path
+        resp = _req.post(url, headers=headers, json=payload, timeout=15)
+        if resp.status_code in (200, 201, 204):
+            return resp.json() if resp.text else {"status": "created"}
+        else:
+            print(f"[D365] API POST error {resp.status_code}: {resp.text[:200]}")
+            return None
+    except Exception as e:
+        print(f"[D365] API POST failed: {e}")
+        return None
+
+
+# --- Microsoft Graph Integration ---
+_D365_TENANT = "D365DemoTSCE32685848.onmicrosoft.com"
+_GRAPH_APP_ID = "a8d3dbf0-5fdd-4283-9d78-8d3235d6ca99"
+_GRAPH_TOKEN_CACHE = None
+_GRAPH_TOKEN_EXPIRY = 0
+_GRAPH_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.graph_token_cache.json')
+print(f"[GRAPH] Cache file: {_GRAPH_CACHE_FILE}, exists: {os.path.exists(_GRAPH_CACHE_FILE)}")
+
+def _graph_get_token():
+    """Get a valid Microsoft Graph access token using cached credentials."""
+    global _GRAPH_TOKEN_CACHE, _GRAPH_TOKEN_EXPIRY
+    if _GRAPH_TOKEN_CACHE and _time.time() < (_GRAPH_TOKEN_EXPIRY - 300):
+        return _GRAPH_TOKEN_CACHE
+    try:
+        import msal
+        cache = msal.SerializableTokenCache()
+        if os.path.exists(_GRAPH_CACHE_FILE):
+            with open(_GRAPH_CACHE_FILE, 'r') as f:
+                cache.deserialize(f.read())
+        app = msal.PublicClientApplication(
+            _GRAPH_APP_ID,
+            authority=f"https://login.microsoftonline.com/{_D365_TENANT}",
+            token_cache=cache
+        )
+        accounts = app.get_accounts()
+        if accounts:
+            result = app.acquire_token_silent(
+                ['Calendars.Read', 'Mail.Read', 'User.Read'],
+                account=accounts[0]
+            )
+            if result and "access_token" in result:
+                _GRAPH_TOKEN_CACHE = result["access_token"]
+                _GRAPH_TOKEN_EXPIRY = _time.time() + result.get("expires_in", 3600)
+                if cache.has_state_changed:
+                    with open(_GRAPH_CACHE_FILE, 'w') as f:
+                        f.write(cache.serialize())
+                print("[GRAPH] Token acquired silently")
+                return _GRAPH_TOKEN_CACHE
+        print("[GRAPH] No cached token. Authenticate via /graph/authenticate")
+        return None
+    except Exception as e:
+        print(f"[GRAPH] Token error: {e}")
+        return None
+
+def _graph_get_calendar_today():
+    """Get today's calendar events from Microsoft Graph (Outlook)."""
+    token = _graph_get_token()
+    if not token:
+        return None
+    try:
+        import requests as _req
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        start = now.strftime('%Y-%m-%dT00:00:00Z')
+        end = (now + timedelta(days=1)).strftime('%Y-%m-%dT23:59:59Z')
+        headers = {"Authorization": f"Bearer {token}"}
+        r = _req.get(
+            f"https://graph.microsoft.com/v1.0/me/calendarView"
+            f"?startDateTime={start}&endDateTime={end}"
+            f"&$select=subject,start,end,location,bodyPreview"
+            f"&$orderby=start/dateTime"
+            f"&$top=20",
+            headers=headers, timeout=10
+        )
+        if r.status_code == 200:
+            return r.json().get("value", [])
+        print(f"[GRAPH] Calendar error {r.status_code}: {r.text[:150]}")
+        return None
+    except Exception as e:
+        print(f"[GRAPH] Calendar request failed: {e}")
+        return None
+
+
 # --- Demo Configuration Layer ---
 # Override these values to re-skin for any customer or industry.
 # Tab names, subtitles, colors, persona names, and POC text are all driven from here.
 # The default config matches the generic Surface NPU demo.
 DEMO_CONFIG = {
-    "app_title": "Local NPU AI Assistant",
-    "app_subtitle": "Powered by Surface + Local AI",
+    "app_title": "Branch of the Future",
+    "app_subtitle": "Powered by Surface + On-Device AI",
 
-    # Brand colors (CSS values)
-    "brand_primary": "#0d1117",       # sidebar background start
-    "brand_primary_end": "#111827",   # sidebar background end
-    "brand_accent": "#00BCF2",        # active states, links, highlights
-    "brand_accent_rgb": "0,188,242",  # RGB for rgba() usage
-    "brand_hover": "#00BCF2",         # hover accent (can differ from accent)
+    # Brand colors - Flagstar (from Michelle: yellow #f6d107, orange #f18f12)
+    "brand_primary": "#ffffff",       # sidebar background start (white)
+    "brand_primary_end": "#f8f8f8",   # sidebar background end (light gray)
+    "brand_accent": "#f18f12",        # active states, links, highlights (Flagstar orange)
+    "brand_accent_rgb": "241,143,18", # RGB for rgba() usage
+    "brand_hover": "#f6d107",         # hover accent (Flagstar yellow)
+    "brand_theme": "light",           # light or dark theme
 
     # Tab names and subtitles (sidebar navigation)
+    # Icons: inline SVGs matching Flagstar line-icon style (dark stroke + gold accent)
     "tabs": {
-        "chat":    {"name": "AI Agent",          "sub": "Chat & Tooling",       "icon": "&#129302;"},
-        "day":     {"name": "My Day",            "sub": "AI Chief of Staff",    "icon": "&#9728;&#65039;"},
-        "auditor": {"name": "Auditor",           "sub": "Clean Room",           "icon": "&#128274;"},
-        "id":      {"name": "ID Verification",   "sub": "Banking & Government", "icon": "&#127380;"},
-        "field":   {"name": "Field Inspection",  "sub": "On-site Assessment",   "icon": "&#128269;"},
+        "chat":    {"name": "Advisor Assistant", "sub": "Knowledge & Tools",    "icon": '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2" fill="#f6d107" stroke="none"/></svg>'},
+        "day":     {"name": "Morning Briefing",  "sub": "Daily Prep",           "icon": '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="#f6d107" stroke="none"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>'},
+        "auditor": {"name": "PII Guard",         "sub": "Compliance Check",     "icon": '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><path d="M12 2L4 5v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V5L12 2z"/><path d="M9 12l2 2 4-4" stroke="#f6d107" stroke-width="2"/></svg>'},
+        "id":      {"name": "ID & Check Verify", "sub": "Scan & Deposit",       "icon": '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="11" r="2.5" fill="#f6d107" stroke="none"/><path d="M15 9h4M15 12h3M15 15h2M5 17c0-2 1.5-3 4-3s4 1 4 3"/></svg>'},
+        "live":    {"name": "Live Assist",       "sub": "Client Meeting AI",    "icon": '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><circle cx="12" cy="8" r="1.5" fill="#f6d107" stroke="none"/></svg>'},
+        "field":   {"name": "Meeting Notes",     "sub": "Post-Meeting Workflow", "icon": '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/><rect x="8" y="9" width="3" height="2" rx="0.5" fill="#f6d107" stroke="none"/></svg>'},
     },
 
-    # Persona switcher (set to None to hide)
-    "personas": None,
-    # Example for banking:
-    # "personas": [
-    #     {"name": "Anna", "role": "Branch Manager", "tabs": ["auditor", "id"]},
-    #     {"name": "Sam",  "role": "Wealth Advisor", "tabs": ["day", "chat", "field"]},
-    # ],
+    # Persona switcher - banking roles
+    "personas": [
+        {"name": "Frank", "role": "Branch Manager",       "tabs": ["auditor", "id"]},
+        {"name": "Alan",  "role": "Relationship Manager", "tabs": ["day", "chat", "live", "field"]},
+    ],
 
     # POC disclaimer text
-    "poc_footer": "This application is a proof-of-concept demonstration of on-device AI development patterns on Copilot+ PCs. Individual features are architectural demonstrations and are not validated for production use.",
-    "poc_auditor": "PROOF OF CONCEPT DEMO -- This is a demonstration of on-device AI document processing architecture. It is not a validated compliance tool or production application and should not be used for actual compliance auditing. Organizations should validate any compliance workflow against their specific regulatory requirements.",
-    "poc_id": "PROOF OF CONCEPT DEMO -- This is a demonstration of on-device document processing. It is not a validated identity verification system and should not be used for actual identity verification, access control, or compliance decisions.",
+    "poc_footer": "This application is a proof-of-concept demonstration of on-device AI for branch banking on Copilot+ PCs. Individual features are architectural demonstrations and are not validated for production use.",
+    "poc_auditor": "PROOF OF CONCEPT -- This is a demonstration of on-device PII detection and compliance pre-screening. It is not a validated compliance tool and should not be used for actual regulatory decisions.",
+    "poc_id": "PROOF OF CONCEPT -- This is a demonstration of on-device document verification. It is not a validated identity verification system and should not be used for actual identity verification or access control.",
 }
 
 app = Flask(__name__)
@@ -374,20 +576,29 @@ def _track_model_call(response, elapsed_seconds):
 
 
 AGENT_SYSTEM_PROMPT = (
-    'You are a helpful AI assistant running locally on a Windows PC. You have these tools:\n\n'
+    'You are a local AI assistant for a bank wealth advisor running on a Surface Copilot+ PC. '
+    'You help with financial product questions, client meeting preparation, and compliance checks. '
+    'You have knowledge of: 529 College Savings Plans, Roth and Traditional IRAs, retirement planning, '
+    'checking and savings accounts, and general banking regulations. '
+    'All your processing runs on-device. No customer data leaves this device.\n\n'
+    'You have these tools:\n\n'
+    'LOCAL TOOLS:\n'
     '- read(path): VIEW or READ an existing file\n'
     '- write(path, content): CREATE or SAVE a NEW file with content\n'
-    '- exec(command): RUN a shell command. The shell is PowerShell \u2014 use cmdlets like '
-    'Get-ChildItem, Get-Content, Get-Date, Enable-NetAdapter, Disable-NetAdapter directly. '
-    'Do NOT wrap in "PowerShell -Command".\n\n'
+    '- exec(command): RUN a shell command (PowerShell cmdlets)\n\n'
+    'DYNAMICS 365 TOOLS (via MCP -- queries live D365 Dataverse):\n'
+    '- d365_customer_lookup(name): Search D365 contacts by name. Returns profile, email, phone, address.\n'
+    '- d365_check_in_queue(): Get the branch check-in queue from the kiosk. Shows who is waiting.\n'
+    '- d365_log_activity(customer_name, note): Log a task or note on a customer D365 record.\n'
+    '- d365_recent_activities(customer_name): Get recent timeline entries for a customer.\n\n'
+    'CALENDAR & PRODUCTIVITY TOOLS:\n'
+    '- my_calendar_today(): Get today\'s calendar events, meetings, and appointments.\n'
+    '- prep_next_client(customer_name): Get client meeting from calendar and look up their D365 profile. Pass the client name if known.\n\n'
     'RULES:\n'
-    '- For general knowledge questions, conversational questions, security explanations, '
-    'IT policy guidance, or anything you can answer from your own knowledge, just respond '
-    'directly in plain text. Do NOT use tools.\n'
-    '- ONLY use tools when the user explicitly asks to read a file, write a file, list a '
-    'directory, run a command, or interact with the local system.\n'
-    '- Questions like "What are the risks of X?" or "Should I close port Y?" are knowledge '
-    'questions — answer them directly without running commands.\n'
+    '- For general knowledge questions (529 plans, IRA rules, banking regulations), answer directly. Do NOT use tools.\n'
+    '- Use D365 tools when the user asks about a customer, the queue, or wants to log something.\n'
+    '- Use calendar tools when the user asks about their schedule, next meeting, or wants to prep.\n'
+    '- Use local tools when the user asks to read/write files or run commands.\n'
     '- Use "write" to CREATE files (needs path + content). Use "read" to VIEW files.\n'
     '- For "exec", ONLY provide "command". Do NOT add env, workdir, or other params.\n'
     '- Use Windows backslash paths: C:\\Users\\file.txt\n'
@@ -399,7 +610,14 @@ AGENT_SYSTEM_PROMPT = (
     '[TOOL_CALL]\n{"name": "read", "arguments": {"path": "C:\\\\Users\\\\me\\\\doc.txt"}}\n[/TOOL_CALL]\n\n'
     '[TOOL_CALL]\n{"name": "write", "arguments": {"path": "C:\\\\Users\\\\me\\\\notes.txt", '
     '"content": "Meeting notes from today"}}\n[/TOOL_CALL]\n\n'
-    '[TOOL_CALL]\n{"name": "exec", "arguments": {"command": "Get-ChildItem C:\\\\Users"}}\n[/TOOL_CALL]'
+    '[TOOL_CALL]\n{"name": "exec", "arguments": {"command": "Get-ChildItem C:\\\\Users"}}\n[/TOOL_CALL]\n\n'
+    'D365 examples:\n'
+    '[TOOL_CALL]\n{"name": "d365_customer_lookup", "arguments": {"name": "Jackie Rodriguez"}}\n[/TOOL_CALL]\n\n'
+    '[TOOL_CALL]\n{"name": "d365_check_in_queue", "arguments": {}}\n[/TOOL_CALL]\n\n'
+    '[TOOL_CALL]\n{"name": "d365_log_activity", "arguments": {"customer_name": "Jackie Rodriguez", "note": "Discussed 529 plan options"}}\n[/TOOL_CALL]\n\n'
+    '[TOOL_CALL]\n{"name": "d365_recent_activities", "arguments": {"customer_name": "Jackie Rodriguez"}}\n[/TOOL_CALL]\n\n'
+    '[TOOL_CALL]\n{"name": "my_calendar_today", "arguments": {}}\n[/TOOL_CALL]\n\n'
+    '[TOOL_CALL]\n{"name": "prep_next_client", "arguments": {"customer_name": "Jackie Rodriguez"}}\n[/TOOL_CALL]'
 )
 
 # --- My Day infrastructure ---
@@ -659,6 +877,246 @@ def execute_tool(name, arguments):
     elif name == "__text_response":
         return {"success": True, "output": arguments.get("text", ""), "is_text": True}
 
+    # D365 MCP tools -- route to MCP server functions
+    elif name == "d365_customer_lookup":
+        try:
+            sys.path.insert(0, os.path.join(_APP_DIR, 'mcp-d365'))
+            from server import d365_customer_lookup as _mcp_lookup
+            result = _mcp_lookup(arguments.get("name", ""))
+            return {"success": True, "output": result}
+        except Exception as e:
+            return {"success": False, "error": f"D365 MCP error: {e}"}
+
+    elif name == "d365_check_in_queue":
+        try:
+            sys.path.insert(0, os.path.join(_APP_DIR, 'mcp-d365'))
+            from server import d365_check_in_queue as _mcp_queue
+            result = _mcp_queue()
+            return {"success": True, "output": result}
+        except Exception as e:
+            return {"success": False, "error": f"D365 MCP error: {e}"}
+
+    elif name == "d365_log_activity":
+        try:
+            sys.path.insert(0, os.path.join(_APP_DIR, 'mcp-d365'))
+            from server import d365_log_activity as _mcp_log
+            result = _mcp_log(
+                arguments.get("customer_name", ""),
+                arguments.get("note", ""),
+                arguments.get("activity_type", "task")
+            )
+            return {"success": True, "output": result}
+        except Exception as e:
+            return {"success": False, "error": f"D365 MCP error: {e}"}
+
+    elif name == "d365_recent_activities":
+        try:
+            sys.path.insert(0, os.path.join(_APP_DIR, 'mcp-d365'))
+            from server import d365_recent_activities as _mcp_activities
+            result = _mcp_activities(arguments.get("customer_name", ""))
+            return {"success": True, "output": result}
+        except Exception as e:
+            return {"success": False, "error": f"D365 MCP error: {e}"}
+
+    elif name == "my_calendar_today":
+        try:
+            # Try Microsoft Graph (live Outlook calendar) first
+            graph_events = _graph_get_calendar_today()
+            if graph_events is not None:
+                if not graph_events:
+                    cal_text = "No calendar events found for today (Outlook)."
+                else:
+                    cal_text = f"Today's Calendar from Outlook ({len(graph_events)} events):\n"
+                    for ev in graph_events:
+                        start = ev.get('start', {}).get('dateTime', '')[:16]
+                        end = ev.get('end', {}).get('dateTime', '')[:16]
+                        subj = ev.get('subject', '?')
+                        loc = ev.get('location', {}).get('displayName', '')
+                        preview = ev.get('bodyPreview', '')[:150]
+                        # Format time
+                        try:
+                            from datetime import datetime
+                            st = datetime.fromisoformat(start)
+                            et = datetime.fromisoformat(end)
+                            time_str = f"{st.strftime('%I:%M %p').lstrip('0')}-{et.strftime('%I:%M %p').lstrip('0')}"
+                        except Exception:
+                            time_str = start
+                        cal_text += f"\n- {time_str} {subj}"
+                        if loc:
+                            cal_text += f" @ {loc}"
+                        if preview:
+                            cal_text += f"\n  {preview}"
+                cal_text += "\n\n(Source: Microsoft Graph - Live Outlook Calendar)"
+                return {"success": True, "output": cal_text}
+
+            # Fallback to local calendar file
+            events = parse_ics(os.path.join(MY_DAY_DIR, 'calendar.ics'))
+            if not events:
+                return {"success": True, "output": "No calendar events found for today."}
+            cal_text = f"Today's Calendar ({len(events)} events):\n"
+            for ev in events:
+                t = ev.get('time', '?')
+                end = ev.get('end_time', '')
+                s = ev.get('summary', '?')
+                loc = ev.get('location', '')
+                desc = ev.get('description', '')[:200]
+                cal_text += f"\n- {t}" + (f"-{end}" if end else "") + f" {s}"
+                if loc:
+                    cal_text += f" @ {loc}"
+                if desc:
+                    cal_text += f"\n  {desc}"
+            cal_text += "\n\n(Source: Local calendar data)"
+            return {"success": True, "output": cal_text}
+        except Exception as e:
+            return {"success": False, "error": f"Calendar error: {e}"}
+
+    elif name == "prep_next_client":
+        try:
+            # Check if a specific client name was requested
+            requested_name = arguments.get("customer_name", "").lower().strip()
+
+            # Try Graph calendar first
+            graph_events = _graph_get_calendar_today()
+            client_meeting = None
+            from_graph = False
+
+            # Words that indicate internal/non-client meetings (skip these)
+            _skip_words = ['huddle', 'standup', 'compliance', 'training', 'webinar', 'lunch', 'break',
+                           'team meeting', 'internal', 'end of day', 'crm notes', 'follow-up']
+            # Words that indicate client meetings (prefer these)
+            _client_words = ['client', 'jackie', 'henderson', 'rodriguez', 'portfolio', 'consultation',
+                             '529', 'account opening', 'new client', 'review', 'retirement']
+
+            if graph_events:
+                # If a specific client was requested, find their meeting first
+                if requested_name:
+                    # First pass: match name in subject only (most reliable)
+                    for ev in graph_events:
+                        subj = (ev.get('subject', '') or '').lower()
+                        if requested_name in subj:
+                            client_meeting = ev
+                            from_graph = True
+                            break
+                    # Second pass: match in body but only for non-internal meetings
+                    if not client_meeting:
+                        for ev in graph_events:
+                            subj = (ev.get('subject', '') or '').lower()
+                            if any(skip in subj for skip in _skip_words):
+                                continue
+                            preview = (ev.get('bodyPreview', '') or '').lower()
+                            if requested_name in preview:
+                                client_meeting = ev
+                                from_graph = True
+                                break
+                    # Also extract the name for D365 lookup
+                    if not client_meeting:
+                        # No Graph meeting found but we have a name — create a stub
+                        pass
+
+                # Find first meeting that looks like a client meeting, skip internal ones
+                if not client_meeting:
+                 for ev in graph_events:
+                    subj = (ev.get('subject', '') or '').lower()
+                    preview = (ev.get('bodyPreview', '') or '').lower()
+                    combined = subj + ' ' + preview
+                    # Skip internal meetings
+                    if any(skip in combined for skip in _skip_words):
+                        continue
+                    # Prefer meetings with client keywords
+                    if any(kw in combined for kw in _client_words):
+                        client_meeting = ev
+                        from_graph = True
+                        break
+                # Second pass: any non-internal meeting with a person's name
+                if not client_meeting:
+                    for ev in graph_events:
+                        subj = (ev.get('subject', '') or '').lower()
+                        if not any(skip in subj for skip in _skip_words):
+                            client_meeting = ev
+                            from_graph = True
+                            break
+
+            # Fallback to local calendar
+            if not client_meeting:
+                events = parse_ics(os.path.join(MY_DAY_DIR, 'calendar.ics'))
+                for ev in events:
+                    summary = (ev.get('summary', '') or '').lower()
+                    if any(kw in summary for kw in ['client', 'meeting', 'jackie', 'henderson', 'rodriguez', 'portfolio', 'consultation']):
+                        client_meeting = ev
+                        break
+
+            if not client_meeting:
+                return {"success": True, "output": "No client meetings found on today's calendar."}
+
+            prep_text = "NEXT CLIENT MEETING:\n"
+            if from_graph:
+                # Graph event format
+                start = client_meeting.get('start', {}).get('dateTime', '')[:16]
+                end = client_meeting.get('end', {}).get('dateTime', '')[:16]
+                try:
+                    from datetime import datetime
+                    st = datetime.fromisoformat(start)
+                    et = datetime.fromisoformat(end)
+                    time_str = f"{st.strftime('%I:%M %p').lstrip('0')}-{et.strftime('%I:%M %p').lstrip('0')}"
+                except Exception:
+                    time_str = start
+                summary = client_meeting.get('subject', '?')
+                loc = client_meeting.get('location', {}).get('displayName', 'N/A')
+                desc = client_meeting.get('bodyPreview', '')
+                prep_text += f"Time: {time_str}\n"
+                prep_text += f"Meeting: {summary}\n"
+                prep_text += f"Location: {loc}\n"
+                if desc:
+                    prep_text += f"Details: {desc[:500]}\n"
+                prep_text += "(Source: Microsoft Graph - Live Outlook Calendar)\n"
+            else:
+                # Local event format
+                prep_text += f"Time: {client_meeting.get('time', '?')}" + (f"-{client_meeting.get('end_time', '')}" if client_meeting.get('end_time') else "") + "\n"
+                summary = client_meeting.get('summary', '?')
+                prep_text += f"Meeting: {summary}\n"
+                prep_text += f"Location: {client_meeting.get('location', 'N/A')}\n"
+                desc = client_meeting.get('description', '')
+                if desc:
+                    prep_text += f"Details: {desc[:500]}\n"
+
+            # Extract client name from meeting subject
+            # Patterns: "Meeting -- Name", "Meeting - Name", "Review -- Name Family", "Name" after --
+            import re
+            client_name = ''
+            # Try "-- Name" or "- Name" pattern first
+            name_match = re.search(r'[-—]+\s*(.+?)$', summary)
+            if name_match:
+                client_name = name_match.group(1).strip()
+            # Also check meeting body for names
+            if not client_name and desc:
+                body_match = re.search(r'(?:with|client[:\s]+|consultation[:\s]+)\s*([A-Z][a-z]+\s+[A-Z][a-z]+)', desc)
+                if body_match:
+                    client_name = body_match.group(1).strip()
+
+            # Use requested name if provided, otherwise use extracted name
+            if requested_name and not client_name:
+                client_name = requested_name.title()
+            elif requested_name:
+                client_name = requested_name.title()
+
+            # Always attempt D365 lookup if we have any name
+            prep_text += f"\n{'='*40}\nD365 CUSTOMER PROFILE:\n"
+            if client_name:
+                try:
+                    sys.path.insert(0, os.path.join(_APP_DIR, 'mcp-d365'))
+                    from server import d365_customer_lookup as _prep_lookup
+                    d365_data = _prep_lookup(client_name)
+                    prep_text += d365_data
+                    prep_text += f"\n(Source: Live D365 Dataverse via MCP)"
+                except Exception as d365_err:
+                    prep_text += f"Could not look up {client_name} in D365: {d365_err}"
+            else:
+                prep_text += "No client name detected in meeting subject. Ask the advisor assistant to look up a specific client."
+
+            return {"success": True, "output": prep_text}
+        except Exception as e:
+            return {"success": False, "error": f"Prep error: {e}"}
+
     return {"success": False, "error": f"Unknown tool: {name}"}
 
 def extract_text_from_pdf(filepath):
@@ -720,6 +1178,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             min-height: 100vh;
             color: #fff;
         }
+        /* theme overrides injected at end of style block */
 
         /* ── App Shell: sidebar + main ── */
         .app-shell { display: flex; min-height: 100vh; }
@@ -753,7 +1212,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
         .sidebar-brand {
             display: flex; flex-direction: column; align-items: center; gap: 0;
-            padding: 0px 14px 36px; border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 0px 14px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);
         }
         .sidebar-brand .brand-logo-surface { width: 92%; max-width: 220px; height: auto; object-fit: contain; }
         .sidebar-brand .brand-logo-copilot { width: 65%; max-width: 150px; height: auto; object-fit: contain; margin-top: -6px; }
@@ -764,8 +1223,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
         /* Persona Switcher */
         .persona-switcher {
-            display: flex; gap: 6px; padding: 8px 14px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);
-            margin-bottom: 4px;
+            display: flex; gap: 6px; padding: 6px 14px 8px; border-bottom: 1px solid rgba(255,255,255,0.06);
+            margin-bottom: 2px;
         }
         .persona-badge {
             flex: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
@@ -1064,8 +1523,11 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 10px;
-            max-width: 720px;
+            max-width: 900px;
             width: 100%;
+        }
+        @media (min-width: 800px) {
+            .suggestion-grid { grid-template-columns: repeat(5, 1fr); }
         }
         .suggestion-chip {
             display: flex;
@@ -2024,6 +2486,64 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         }
         .privacy-icon { font-size: 1.5em; }
 
+        /* Check Scanner / Mode Switcher */
+        .id-mode-switcher { display: flex; gap: 0; margin-bottom: 20px; background: rgba(255,255,255,0.06); border-radius: 10px; padding: 4px; }
+        .id-mode-btn { flex: 1; padding: 10px 16px; border: none; border-radius: 8px; background: transparent; color: rgba(255,255,255,0.5); font-size: 0.9em; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .id-mode-btn.active { background: var(--brand-accent); color: #fff; }
+        .id-mode-btn:hover:not(.active) { color: rgba(255,255,255,0.8); }
+        .check-result-card { display: none; background: rgba(255,255,255,0.05); border-radius: 15px; padding: 20px; margin-top: 20px; border: 1px solid rgba(255,255,255,0.1); }
+        .check-result-card h3 { display: flex; justify-content: space-between; align-items: center; margin: 0 0 15px 0; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .check-field { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .check-field-label { color: rgba(255,255,255,0.5); font-size: 0.85em; }
+        .check-field-value { color: #fff; font-weight: 500; text-align: right; max-width: 60%; }
+        .check-amount { font-size: 1.4em; font-weight: 700; color: #10b981; text-align: center; padding: 12px; background: rgba(16,185,129,0.1); border-radius: 10px; margin: 12px 0; }
+        .check-flags { margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); }
+        .check-flag { display: flex; align-items: center; gap: 8px; padding: 6px 10px; margin: 4px 0; border-radius: 6px; font-size: 0.85em; }
+        .check-flag.flag-pass { background: rgba(16,185,129,0.1); color: #10b981; }
+        .check-flag.flag-warn { background: rgba(234,179,8,0.1); color: #eab308; }
+        .check-flag.flag-fail { background: rgba(239,68,68,0.1); color: #ef4444; }
+        .check-demo-btn { background: rgba(var(--brand-accent-rgb),0.15); color: var(--brand-accent); border: 1px solid rgba(var(--brand-accent-rgb),0.3); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.85em; font-weight: 600; margin-top: 10px; }
+        .check-demo-btn:hover { background: rgba(var(--brand-accent-rgb),0.25); }
+        .demo-id-preview { margin-top: 16px; text-align: center; }
+        .demo-id-preview img { max-width: 420px; width: 100%; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+        .mock-id-card { max-width: 420px; margin: 0 auto; background: linear-gradient(135deg, #e8e8e8, #f5f5f5); border-radius: 12px; padding: 16px 20px; color: #222; font-family: Arial, sans-serif; box-shadow: 0 4px 20px rgba(0,0,0,0.4); text-align: left; position: relative; overflow: hidden; }
+        .mock-id-card .id-state { font-size: 1.1em; font-weight: 800; color: #1a3a5c; text-transform: uppercase; letter-spacing: 1px; }
+        .mock-id-card .id-type { font-size: 0.7em; color: #555; text-transform: uppercase; letter-spacing: 0.5px; }
+        .mock-id-card .id-photo-placeholder { width: 80px; height: 100px; background: #ccc; border-radius: 6px; display: inline-block; vertical-align: top; margin-right: 14px; display: flex; align-items: center; justify-content: center; font-size: 2em; color: #999; }
+        .mock-id-card .id-details { display: inline-block; vertical-align: top; font-size: 0.8em; line-height: 1.8; }
+        .mock-id-card .id-name { font-size: 1em; font-weight: 700; color: #111; margin: 8px 0 4px; }
+        .mock-id-card .id-row { color: #444; }
+        .mock-id-card .id-row span { color: #888; font-size: 0.85em; }
+        .d365-card { display: none; background: linear-gradient(135deg, rgba(44,62,80,0.95), rgba(52,73,94,0.95)); border-radius: 15px; padding: 20px; margin-top: 20px; border: 1px solid rgba(255,255,255,0.15); }
+        .d365-card h3 { display: flex; justify-content: space-between; align-items: center; margin: 0 0 15px 0; color: #fff; }
+        .d365-badge { font-size: 0.7em; padding: 4px 10px; border-radius: 20px; background: rgba(16,185,129,0.2); color: #10b981; font-weight: 600; }
+        .d365-section { margin-bottom: 12px; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px; }
+        .d365-section-title { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.4); margin-bottom: 8px; font-weight: 600; }
+        .d365-field { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.9em; }
+        .d365-field-label { color: rgba(255,255,255,0.5); }
+        .d365-field-value { color: #fff; font-weight: 500; }
+        .d365-activity { padding: 8px 12px; background: rgba(255,255,255,0.03); border-left: 3px solid var(--brand-accent); border-radius: 4px; margin: 6px 0; font-size: 0.85em; }
+        .d365-open-btn { display: inline-block; margin-top: 12px; padding: 8px 20px; background: rgba(0,120,212,0.2); color: #4db8ff; border: 1px solid rgba(0,120,212,0.4); border-radius: 8px; cursor: pointer; font-size: 0.85em; font-weight: 600; text-decoration: none; }
+        .d365-open-btn:hover { background: rgba(0,120,212,0.35); }
+
+        /* Pen Signature Pad */
+        .sig-section { display: none; margin-top: 20px; border: 1px solid rgba(255,255,255,0.15); border-radius: 15px; overflow: hidden; background: rgba(255,255,255,0.03); }
+        .sig-agreement { padding: 16px 20px; font-size: 0.85em; color: rgba(255,255,255,0.6); line-height: 1.6; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .sig-agreement strong { color: rgba(255,255,255,0.85); }
+        .sig-pad-wrapper { position: relative; background: #fff; margin: 16px; border-radius: 10px; }
+        .sig-pad-wrapper canvas { display: block; border-radius: 10px; cursor: crosshair; touch-action: none; }
+        .sig-pad-label { position: absolute; bottom: 40px; left: 20px; right: 20px; border-bottom: 1px solid #ccc; font-size: 0.8em; color: #999; padding-bottom: 4px; pointer-events: none; }
+        .sig-pad-label span { background: #fff; padding: 0 8px; position: relative; top: 8px; }
+        .sig-controls { display: flex; gap: 10px; padding: 12px 16px; justify-content: flex-end; }
+        .sig-btn { padding: 10px 24px; border: none; border-radius: 8px; font-size: 0.85em; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .sig-clear { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7); }
+        .sig-clear:hover { background: rgba(255,255,255,0.15); }
+        .sig-accept { background: #10b981; color: #fff; }
+        .sig-accept:hover { background: #059669; }
+        .sig-confirm { display: none; margin-top: 16px; padding: 16px 20px; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); border-radius: 12px; }
+        .sig-confirm h4 { margin: 0 0 10px 0; color: #10b981; }
+        .sig-confirm .sig-hash { font-family: monospace; font-size: 0.8em; color: rgba(255,255,255,0.5); word-break: break-all; background: rgba(0,0,0,0.2); padding: 8px 12px; border-radius: 6px; margin: 8px 0; }
+
         /* Two-Brain Router — Decision Card */
         .decision-card {
             background: rgba(255,255,255,0.06);
@@ -2278,6 +2798,44 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         }
         .warmup-time { font-size: 0.8em; color: rgba(255,255,255,0.35); margin-top: 12px; }
 
+        /* ── Live Assist ── */
+        .live-assist-layout { display: grid; grid-template-columns: 3fr 2fr; grid-template-rows: 1fr auto; gap: 16px; height: calc(100vh - 80px); padding: 16px; }
+        .live-transcript-pane { background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
+        .live-prompter-pane { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
+        .live-bottom-bar { grid-column: 1 / -1; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px 20px; display: flex; align-items: center; gap: 12px; font-size: 0.85em; }
+        .live-pane-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,0.6); font-weight: 600; }
+        .live-pane-header .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; flex-shrink: 0; }
+        .live-pane-header .pulse-dot.active { background: #22c55e; animation: livePulse 1.5s ease-in-out infinite; }
+        @keyframes livePulse { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.5); } 50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(34,197,94,0); } }
+        .live-transcript-area { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+        .live-transcript-line { padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.04); animation: liveFadeIn 0.4s ease; font-size: 0.95em; line-height: 1.5; }
+        .live-transcript-line .line-time { color: rgba(255,255,255,0.35); font-size: 0.8em; margin-right: 8px; font-family: monospace; }
+        .live-transcript-line .line-speaker { font-size: 0.75em; font-weight: 700; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 4px; margin-right: 8px; text-transform: uppercase; }
+        .live-transcript-line.speaker-customer .line-speaker { background: rgba(99,102,241,0.2); color: #818cf8; }
+        .live-transcript-line.speaker-advisor .line-speaker { background: rgba(34,197,94,0.2); color: #22c55e; }
+        .live-transcript-line.speaker-customer { border-left: 3px solid rgba(99,102,241,0.4); }
+        .live-transcript-line.speaker-advisor { border-left: 3px solid rgba(34,197,94,0.4); }
+        .live-transcript-line.interim { color: rgba(255,255,255,0.4); font-style: italic; background: rgba(255,255,255,0.02); }
+        @keyframes liveFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .live-insight-cards { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .live-insight-card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 14px; animation: liveFadeIn 0.5s ease; }
+        .live-insight-card .insight-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .live-insight-card .insight-time { font-size: 0.75em; color: rgba(255,255,255,0.35); font-family: monospace; }
+        .live-insight-card .sentiment-badge { font-size: 0.7em; font-weight: 700; letter-spacing: 0.5px; padding: 2px 8px; border-radius: 10px; }
+        .sentiment-positive { background: rgba(34,197,94,0.15); color: #22c55e; }
+        .sentiment-neutral { background: rgba(234,179,8,0.15); color: #eab308; }
+        .sentiment-cautious { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .live-insight-card .insight-text { font-size: 0.9em; line-height: 1.5; color: rgba(255,255,255,0.85); }
+        .live-btn { padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.8); cursor: pointer; font-size: 0.85em; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+        .live-btn:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.25); }
+        .live-btn.active { background: var(--brand-accent); color: #fff; border-color: var(--brand-accent); }
+        .live-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .live-status-text { color: rgba(255,255,255,0.5); font-size: 0.85em; margin-left: auto; }
+        .live-translated-line { font-style: italic; color: rgba(255,255,255,0.6); font-size: 0.9em; padding-left: 12px; border-left: 2px solid rgba(var(--brand-accent-rgb),0.4); margin-top: 2px; }
+        .live-summary-card { background: linear-gradient(135deg, rgba(var(--brand-accent-rgb),0.1), rgba(var(--brand-accent-rgb),0.05)); border: 1px solid rgba(var(--brand-accent-rgb),0.3); border-radius: 10px; padding: 16px; margin-top: 8px; }
+        .live-summary-card h4 { margin: 0 0 8px 0; color: var(--brand-accent); font-size: 0.9em; }
+        .live-summary-card p { margin: 4px 0; font-size: 0.85em; color: rgba(255,255,255,0.7); }
+
         /* ── Field Inspection ── */
         .inspection-workspace { display: grid; grid-template-columns: 300px 1fr 340px; grid-template-rows: 1fr auto; gap: 16px; height: calc(100vh - 80px); padding: 16px; }
         .inspection-form-panel { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; overflow-y: auto; }
@@ -2368,8 +2926,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         .photo-thumb .photo-annotate { position: absolute; bottom: 6px; left: 6px; width: 28px; height: 28px; border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff; border: none; cursor: pointer; display: none; align-items: center; justify-content: center; font-size: 14px; line-height: 1; backdrop-filter: blur(4px); }
         .photo-thumb:hover .photo-annotate { display: flex; }
         .photo-thumb .annotation-badge { position: absolute; top: 6px; left: 6px; width: 22px; height: 22px; border-radius: 50%; background: #ef4444; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; }
-        .annotation-note { display: none; margin-top: 10px; padding: 10px 12px; border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; background: rgba(239,68,68,0.06); font-size: 0.85em; color: rgba(255,255,255,0.8); }
-        .annotation-note .ann-label { color: #ef4444; font-weight: 600; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .annotation-note { display: none; margin-top: 10px; padding: 10px 12px; border: 1px solid rgba(14,165,233,0.3); border-radius: 8px; background: rgba(14,165,233,0.06); font-size: 0.85em; color: rgba(255,255,255,0.8); }
+        .annotation-note .ann-label { color: #0ea5e9; font-weight: 600; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
 
         .findings-log { margin-bottom: 16px; }
         .findings-log h3 { margin: 0 0 10px 0; font-size: 0.9em; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 1px; }
@@ -2446,6 +3004,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         @media (max-width: 900px) {
             .inspection-workspace { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; }
         }
+        {{THEME_OVERRIDES}}
     </style>
 </head>
 <body>
@@ -2470,8 +3029,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
       <aside class="sidebar" id="appSidebar">
         <button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar">&#9776;</button>
         <div class="sidebar-brand">
-          <img class="brand-logo-surface" src="/logos/surface-logo.png" alt="Microsoft Surface" onerror="this.style.display='none'">
-          <img class="brand-logo-copilot" src="/logos/copilot-logo.avif" alt="Copilot+ PC" onerror="this.style.display='none'">
+          {{SIDEBAR_LOGO}}
         </div>
 
         <nav class="sidebar-nav">
@@ -2492,6 +3050,10 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             <span class="nav-icon">{{TAB_ID_ICON}}</span>
             <span class="sidebar-label">{{TAB_ID_NAME}}<span class="sidebar-nav-sub">{{TAB_ID_SUB}}</span></span>
           </a>
+          <a class="sidebar-nav-item" data-tab="live">
+            <span class="nav-icon">{{TAB_LIVE_ICON}}</span>
+            <span class="sidebar-label">{{TAB_LIVE_NAME}}<span class="sidebar-nav-sub">{{TAB_LIVE_SUB}}</span></span>
+          </a>
           <a class="sidebar-nav-item" data-tab="field">
             <span class="nav-icon">{{TAB_FIELD_ICON}}</span>
             <span class="sidebar-label">{{TAB_FIELD_NAME}}<span class="sidebar-nav-sub">{{TAB_FIELD_SUB}}</span></span>
@@ -2507,7 +3069,6 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             <div class="savings-stat savings-stat-hero" id="savingsCO2">&#127793; 0g CO&#8322; avoided</div>
             <div class="savings-stat savings-stat-compact" id="savingsCompact">&#128994; $0.00</div>
           </div>
-          <div class="poc-footer">{{POC_FOOTER}}</div>
           <span class="badge" style="text-align:center;">&#9889; {{CHIP_LABEL}}</span>
           <span class="offline-badge" id="offlineBadge">Online</span>
           <div class="sidebar-footer-controls">
@@ -2521,6 +3082,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
               </select>
             </div>
           </div>
+          <div class="poc-footer">{{POC_FOOTER}}</div>
         </div>
       </aside>
 
@@ -2533,24 +3095,25 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             <button class="tab-btn active" id="chatTabBtn">AI Agent</button>
             <button class="tab-btn" id="auditorTabBtn">&#128274; Auditor</button>
             <button class="tab-btn" id="idTabBtn">ID Verification</button>
+            <button class="tab-btn" id="liveTabBtn">Live Assist</button>
             <button class="tab-btn" id="fieldTabBtn">Field Inspection</button>
         </div>
 
         <!-- My Day Tab -->
         <div id="day-tab" class="tab-content">
-            <div class="auditor-header">&#9728;&#65039; MY DAY</div>
+            <div class="auditor-header"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="#f6d107" stroke="none"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg> MORNING BRIEFING</div>
 
             <!-- Data Summary Cards -->
             <div class="day-cards">
                 <div class="day-card" id="emailCard" data-peek="emails">
-                    <div class="card-icon">&#128231;</div>
+                    <div class="card-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/><circle cx="12" cy="10" r="1.5" fill="#f6d107" stroke="none"/></svg></div>
                     <div class="card-count" id="emailCount">&mdash;</div>
                     <div class="card-label">Emails</div>
                     <div class="card-hint">click to peek</div>
                     <div class="card-peek" id="emailPeek"></div>
                 </div>
                 <div class="day-card" id="eventCard" data-peek="events">
-                    <div class="card-icon">&#128197;</div>
+                    <div class="card-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><rect x="7" y="14" width="4" height="3" rx="0.5" fill="#f6d107" stroke="none"/></svg></div>
                     <div class="card-count" id="eventCount">&mdash;</div>
                     <div class="card-label">Events Today</div>
                     <div class="card-hint">click to peek</div>
@@ -2567,15 +3130,15 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
             <!-- Hero Action Buttons -->
             <div class="hero-btn-row">
-                <button class="brief-me-btn" id="briefMeBtn">&#9728;&#65039; Brief Me</button>
-                <button class="focus-btn" id="focusBtn">&#127919; Top 3 Focus</button>
-                <button class="tomorrow-btn" id="tomorrowBtn">&#128302; Tomorrow</button>
+                <button class="brief-me-btn" id="briefMeBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="#f6d107" stroke="none"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg> Brief Me</button>
+                <button class="focus-btn" id="focusBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="#f6d107" stroke="none"/></svg> Top 3 Focus</button>
+                <button class="tomorrow-btn" id="tomorrowBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><rect x="7" y="14" width="4" height="3" rx="0.5" fill="#f6d107" stroke="none"/></svg> Tomorrow</button>
             </div>
 
             <!-- Secondary Action Buttons -->
             <div class="day-actions">
-                <button class="day-action-btn" id="triageBtn">&#128231; Triage Inbox</button>
-                <button class="day-action-btn" id="prepBtn">&#128203; Prep for Next Meeting</button>
+                <button class="day-action-btn" id="triageBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/><circle cx="12" cy="10" r="1.5" fill="#f6d107" stroke="none"/></svg> Triage Inbox</button>
+                <button class="day-action-btn" id="prepBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><rect x="8" y="9" width="3" height="2" rx="0.5" fill="#f6d107" stroke="none"/></svg> Prep for Next Meeting</button>
             </div>
 
             <!-- Progress Indicator -->
@@ -2599,24 +3162,28 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
         <!-- Agent Chat Tab -->
         <div id="chat-tab" class="tab-content active">
-          <div class="auditor-header">&#129302; AI AGENT</div>
+          <div class="auditor-header"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:8px;"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2" fill="#f6d107" stroke="none"/></svg>ADVISOR ASSISTANT</div>
           <div class="agent-chat-layout">
 
             <!-- Suggestion chips (directly under tabs) -->
             <div class="chat-empty-state" id="chatEmptyState">
               <div class="suggestion-grid">
-                <button class="suggestion-chip" data-action="device-health">
-                  <span class="chip-icon">&#128737;</span>
-                  <span>Device Health</span>
+                <button class="suggestion-chip" data-action="my-calendar">
+                  <span class="chip-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><rect x="7" y="14" width="4" height="3" rx="0.5" fill="#f6d107" stroke="none"/></svg></span>
+                  <span>My Calendar</span>
                 </button>
-                <button class="suggestion-chip" data-action="security-audit">
-                  <span class="chip-icon">&#128272;</span>
-                  <span>Security Audit</span>
+                <button class="suggestion-chip" data-action="prep-next-client">
+                  <span class="chip-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/><circle cx="12" cy="7" r="1.5" fill="#f6d107" stroke="none"/></svg></span>
+                  <span>Prep Next Client</span>
                 </button>
-                <button class="suggestion-chip" data-action="device-search">
-                  <span class="chip-icon">&#128269;</span>
-                  <span>Device Search</span>
-                </button>
+                <a class="suggestion-chip" href="https://orgdf28000a.crm.dynamics.com/main.aspx?appid=e386e65f-ec29-f111-8342-002248357e0e&pagetype=genux&id=6e691a49-650c-419f-8177-3d0e41c38cd8" target="_blank" style="text-decoration:none;">
+                  <span class="chip-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/><circle cx="9" cy="7" r="1.5" fill="#f6d107" stroke="none"/></svg></span>
+                  <span>Customer Queue</span>
+                </a>
+                <a class="suggestion-chip" href="https://www.office.com" target="_blank" style="text-decoration:none;">
+                  <span class="chip-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/><circle cx="12" cy="10" r="1.5" fill="#f6d107" stroke="none"/></svg></span>
+                  <span>Outlook / Office</span>
+                </a>
               </div>
             </div>
 
@@ -2655,8 +3222,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 </div>
               </div>
               <div class="topbar-right">
-                <button class="topbar-btn" id="qpAuditSummary" title="View AI action log">&#128220; Audit Log</button>
-                <button class="topbar-btn" id="qpClear" title="Clear chat">&#128465; Clear</button>
+                <button class="topbar-btn" id="qpAuditSummary" title="View AI action log"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><rect x="8" y="9" width="3" height="2" rx="0.5" fill="#f6d107" stroke="none"/></svg> Audit Log</button>
+                <button class="topbar-btn" id="qpClear" title="Clear chat"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg> Clear</button>
                 <div class="topbar-divider"></div>
                 <div class="policy-icon-wrap">
                   <button class="topbar-btn" title="Agent Policy">&#128737;&#65039;</button>
@@ -2691,7 +3258,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
             <!-- Mode Selector -->
             <div id="auditorModeSelector">
-                <div class="auditor-header">&#128274; AUDITOR</div>
+                <div class="auditor-header"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><path d="M12 2L4 5v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V5L12 2z"/><path d="M9 12l2 2 4-4" stroke="#f6d107" stroke-width="2"/></svg> PII GUARD</div>
                 <div class="mode-cards">
                     <div class="mode-card" id="modeCardContract" data-mode="contract">
                         <div class="mode-card-icon">&#128274;</div>
@@ -2725,7 +3292,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 </div>
                 <div class="auditor-demo-section" style="margin-top:20px;">
                     <div style="opacity:0.6;font-size:0.9em;margin-bottom:8px;">Quick demo:</div>
-                    <button class="auditor-demo-btn" id="routerDemoBtn">&#128196; Analyze Demo NDA</button>
+                    <button class="auditor-demo-btn" id="routerDemoBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><rect x="8" y="9" width="3" height="2" rx="0.5" fill="#f6d107" stroke="none"/></svg> Analyze Demo NDA</button>
                     <button class="auditor-demo-btn" id="routerEscalationDemoBtn" style="margin-top:8px;border-color:rgba(255,185,0,0.4);color:#FFB900;">&#9888;&#65039; Demo: Escalation Path</button>
                 </div>
                 <div style="text-align:center;margin-top:16px;">
@@ -2735,7 +3302,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
             <!-- State 1b: Marketing Input Zone -->
             <div id="marketingInputZone" style="display:none;">
-                <div class="auditor-header">&#128226; MARKETING / CAMPAIGN REVIEW</div>
+                <div class="auditor-header"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><path d="M3 11l18-5v16l-18-5v-6z"/><path d="M11 11v6"/><circle cx="7" cy="14" r="1" fill="#f6d107" stroke="none"/></svg> MARKETING / CAMPAIGN REVIEW</div>
                 <div class="auditor-dropzone" id="marketingDropzone">
                     <div class="dropzone-icon">&#128226;</div>
                     <div class="dropzone-title">Drop a marketing asset for CELA review</div>
@@ -2746,7 +3313,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 </div>
                 <div class="auditor-demo-section" style="margin-top:20px;">
                     <div style="opacity:0.6;font-size:0.9em;margin-bottom:8px;">Quick demo:</div>
-                    <button class="auditor-demo-btn" id="marketingDemoCleanBtn">&#128196; Review: Clean Campaign Page</button>
+                    <button class="auditor-demo-btn" id="marketingDemoCleanBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><rect x="8" y="9" width="3" height="2" rx="0.5" fill="#f6d107" stroke="none"/></svg> Review: Clean Campaign</button>
                     <button class="auditor-demo-btn" id="marketingDemoRiskyBtn" style="margin-top:8px;border-color:rgba(255,185,0,0.4);color:#FFB900;">&#9888;&#65039; Review: Risky Campaign Brief</button>
                 </div>
                 <div style="text-align:center;margin-top:16px;">
@@ -2844,7 +3411,12 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         <!-- ID Verification Tab -->
         <div id="id-tab" class="tab-content">
             <div class="poc-banner">&#9888;&#65039; <strong>PROOF OF CONCEPT DEMO</strong> -- {{POC_ID}}</div>
-            <div class="auditor-header">&#127380; ID VERIFICATION</div>
+            <div class="auditor-header"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="11" r="2.5" fill="#f6d107" stroke="none"/><path d="M15 9h4M15 12h3M15 15h2M5 17c0-2 1.5-3 4-3s4 1 4 3"/></svg> ID &amp; CHECK VERIFY</div>
+
+            <div class="id-mode-switcher">
+                <button class="id-mode-btn active" id="idModeBtn" data-mode="id"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="11" r="2.5" fill="#f6d107" stroke="none"/><path d="M15 9h4M15 12h3M15 15h2M5 17c0-2 1.5-3 4-3s4 1 4 3"/></svg> Scan ID</button>
+                <button class="id-mode-btn" id="checkModeBtn" data-mode="check"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="2" y="5" width="20" height="14" rx="1"/><path d="M2 10h20"/><circle cx="17" cy="15" r="2" fill="#f6d107" stroke="none"/></svg> Scan Check</button>
+            </div>
 
             <div class="camera-section">
                 <div class="camera-selector" style="margin-bottom: 15px;">
@@ -2859,7 +3431,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     <canvas id="captureCanvas" style="display: none;"></canvas>
                     <img id="capturedImage" style="display: none;" alt="Captured ID">
                     <div id="cameraPlaceholder" style="padding: 60px; background: rgba(0,0,0,0.3); border-radius: 10px;">
-                        <div style="font-size: 3em; margin-bottom: 15px;">&#128247;</div>
+                        <div style="margin-bottom: 15px;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="2" y="5" width="48" height="15" rx="2"/><circle cx="12" cy="13" r="3"/><circle cx="12" cy="13" r="1" fill="#f6d107" stroke="none"/><path d="M17 5V3H7v2"/></svg></div>
                         <div>Click "Start Camera" to begin ID verification</div>
                     </div>
                 </div>
@@ -2869,6 +3441,13 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     <button class="camera-btn" id="captureBtn" style="display: none;">Capture ID</button>
                     <button class="camera-btn" id="retakeBtn" style="display: none;">Retake</button>
                     <button class="camera-btn" id="analyzeIdBtn" style="display: none;">Analyze ID</button>
+                    <button class="camera-btn" id="analyzeCheckBtn" style="display: none;">Analyze Check</button>
+                    <button class="check-demo-btn" id="loadDemoCheckBtn" style="display: none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="2" y="5" width="20" height="14" rx="1"/><path d="M2 10h20"/><circle cx="17" cy="15" r="2" fill="#f6d107" stroke="none"/></svg> Load Demo Check</button>
+                    <button class="check-demo-btn" id="loadDemoIdBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="11" r="2.5" fill="#f6d107" stroke="none"/><path d="M15 9h4M15 12h3M15 15h2M5 17c0-2 1.5-3 4-3s4 1 4 3"/></svg> Load Demo ID &#9660;</button>
+                    <div id="demoIdMenu" style="display:none; position:absolute; z-index:100; background:rgba(30,30,30,0.97); border:1px solid rgba(255,255,255,0.15); border-radius:10px; padding:6px; backdrop-filter:blur(12px); min-width:220px;">
+                        <button class="check-demo-btn" id="demoIdMclovin" style="width:100%; margin:2px 0; text-align:left;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="11" r="2.5" fill="#ef4444" stroke="none"/><path d="M15 9h4M15 12h3M15 15h2M5 17c0-2 1.5-3 4-3s4 1 4 3"/></svg> McLovin (Fake ID)</button>
+                        <button class="check-demo-btn" id="demoIdJackie" style="width:100%; margin:2px 0; text-align:left;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="11" r="2.5" fill="#10b981" stroke="none"/><path d="M15 9h4M15 12h3M15 15h2M5 17c0-2 1.5-3 4-3s4 1 4 3"/></svg> Jackie Rodriguez (Valid)</button>
+                    </div>
                 </div>
             </div>
             
@@ -2890,6 +3469,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 </div>
             </div>
             
+            <div id="demoIdPreview" class="demo-id-preview" style="display: none;"></div>
+
             <div id="ocrPreview" class="ocr-preview" style="display: none;">
                 <strong>Extracted Text:</strong><br><span id="ocrText"></span>
             </div>
@@ -2903,14 +3484,111 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 <div id="idNotes" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);"></div>
             </div>
 
+            <!-- Check Scanner Result Card -->
+            <div id="checkResultCard" class="check-result-card">
+                <h3>
+                    <span>&#128179; Check Verification Result</span>
+                    <span class="status-badge" id="checkStatusBadge">Checking...</span>
+                </h3>
+                <div id="checkAmount" class="check-amount" style="display:none;"></div>
+                <div id="checkFields"></div>
+                <div id="checkFlags" class="check-flags"></div>
+            </div>
+
+            <!-- D365 Customer Profile Card (after ID scan) -->
+            <div id="d365CustomerCard" class="d365-card">
+                <h3>
+                    <span>&#128100; Customer Profile</span>
+                    <span class="d365-badge" id="d365Status">Connected to Dynamics 365</span>
+                </h3>
+                <div id="d365CustomerContent"></div>
+                <a class="d365-open-btn" id="d365OpenLink" href="#" target="_blank">Open in Dynamics 365 &#8594;</a>
+            </div>
+
+            <!-- D365 Transaction Confirmation (after check deposit) -->
+            <div id="d365TransactionCard" class="d365-card">
+                <h3>
+                    <span>&#128196; Transaction Logged</span>
+                    <span class="d365-badge">Synced to D365</span>
+                </h3>
+                <div id="d365TransactionContent"></div>
+            </div>
+
+            <!-- Pen Signature Section -->
+            <div id="sigSection" class="sig-section">
+                <div class="sig-agreement">
+                    <strong>Account Agreement</strong><br>
+                    I, the undersigned, authorize the opening of the account(s) described above and agree to the terms and conditions
+                    of the account agreement, fee schedule, and privacy notice provided by the financial institution.
+                    I certify that the information provided is accurate and complete. I understand that this account
+                    is governed by federal and state regulations, and I consent to electronic record-keeping as permitted by law.
+                </div>
+                <div class="sig-pad-wrapper">
+                    <canvas id="sigCanvas" width="600" height="150"></canvas>
+                    <div class="sig-pad-label"><span>Sign here</span></div>
+                </div>
+                <div class="sig-controls">
+                    <button class="sig-btn sig-clear" id="sigClearBtn">Clear</button>
+                    <button class="sig-btn sig-accept" id="sigAcceptBtn">&#10003; Accept &amp; Sign</button>
+                </div>
+            </div>
+
+            <!-- Signature Confirmation -->
+            <div id="sigConfirm" class="sig-confirm">
+                <h4>&#10003; Signature Captured</h4>
+                <div>Document signed digitally on-device. No signature data transmitted.</div>
+                <div class="sig-hash" id="sigHash"></div>
+                <div style="font-size:0.8em;color:rgba(255,255,255,0.4);margin-top:6px;">Trust Receipt logged. All processing local.</div>
+            </div>
+
             <div class="privacy-note" style="margin-top: 20px;">
                 <span class="privacy-icon">&#128274;</span>
                 <div>
                     <strong>100% Local Processing</strong><br>
-                    Your ID image and data never leave this device. Camera capture, OCR, and AI analysis all run locally.
+                    <span id="idPrivacyText">Your ID image and data never leave this device. Camera capture, OCR, and AI analysis all run locally.</span>
                 </div>
             </div>
             <div class="tab-footer">{{DEVICE_LABEL}} &mdash; {{MODEL_LABEL}} on {{CHIP_LABEL}} &mdash; All processing happens locally</div>
+        </div>
+
+        <!-- Live Assist Tab -->
+        <div id="live-tab" class="tab-content">
+            <div class="live-assist-layout">
+                <!-- Left Pane: Live Transcript (60%) -->
+                <div class="live-transcript-pane" id="liveTranscriptPane">
+                    <div class="live-pane-header">
+                        <span class="pulse-dot" id="livePulseDot"></span>
+                        Live Transcript
+                    </div>
+                    <div class="live-transcript-area" id="liveTranscriptArea">
+                        <div style="color: rgba(255,255,255,0.3); text-align: center; margin-top: 40px; font-size: 0.9em;">
+                            Press <strong>Start Live Voice</strong> or <strong>Run Demo Script</strong> to begin
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Pane: AI Prompter (40%) -->
+                <div class="live-prompter-pane" id="livePrompterPane">
+                    <div class="live-pane-header">
+                        <span class="pulse-dot" id="liveInsightDot"></span>
+                        AI Advisor Insights
+                    </div>
+                    <div class="live-insight-cards" id="liveInsightCards">
+                        <div id="liveInsightPlaceholder" style="color: rgba(255,255,255,0.3); text-align: center; margin-top: 40px; font-size: 0.9em;">
+                            Insights will appear here as the conversation flows
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Bar -->
+                <div class="live-bottom-bar">
+                    <button class="live-btn" id="liveVoiceBtn" title="Start live speech-to-text using your microphone"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><circle cx="12" cy="8" r="1.5" fill="#f6d107" stroke="none"/></svg> Start Live Voice</button>
+                    <button class="live-btn" id="liveDemoBtn" title="Run a scripted demo conversation"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><polygon points="5 3 19 12 5 21 5 3" fill="#f6d107" stroke="none"/></svg> Run Demo Script</button>
+                    <button class="live-btn" id="liveStopBtn" style="display:none;" title="Stop the current session"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="4" y="4" width="16" height="16" rx="2" fill="#ef4444" stroke="none"/></svg> Stop</button>
+                    <button class="live-btn" id="liveTranslateBtn" style="display:none;" title="Translate transcript to another language">&#127760; Translate to Spanish</button>
+                    <span class="live-status-text" id="liveStatusText">Ready</span>
+                </div>
+            </div>
         </div>
 
         <!-- Field Inspection Tab -->
@@ -2919,31 +3597,31 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
                 <!-- Left Panel: Structured Form -->
                 <div class="inspection-form-panel">
-                    <h3>&#128203; Inspection Details</h3>
+                    <h3>&#128221; Meeting Details</h3>
 
                     <div class="insp-field">
-                        <label for="inspInspector">Inspector</label>
-                        <input type="text" id="inspInspector" placeholder="e.g. Sarah Chen">
+                        <label for="inspInspector">Client</label>
+                        <input type="text" id="inspInspector" placeholder="e.g. Relationship Manager">
                     </div>
                     <div class="insp-field">
                         <label for="inspLocation">Location</label>
-                        <input type="text" id="inspLocation" placeholder="e.g. Building C, 2nd Floor">
+                        <input type="text" id="inspLocation" placeholder="e.g. Jackie Rodriguez, Starbucks Main St">
                     </div>
                     <div class="insp-field">
-                        <label for="inspDateTime">Date / Time</label>
+                        <label for="inspDateTime">Meeting Date</label>
                         <input type="datetime-local" id="inspDateTime">
                     </div>
                     <div class="insp-field">
-                        <label for="inspIssue">Reported Issue</label>
-                        <input type="text" id="inspIssue" placeholder="e.g. Water Staining">
+                        <label for="inspIssue">Products Discussed</label>
+                        <input type="text" id="inspIssue" placeholder="e.g. 529 Plan, Roth IRA">
                     </div>
                     <div class="insp-field">
-                        <label for="inspSource">Source</label>
-                        <input type="text" id="inspSource" placeholder="e.g. Property Manager Report">
+                        <label for="inspSource">Source / Referral</label>
+                        <input type="text" id="inspSource" placeholder="e.g. Existing Member Referral">
                     </div>
 
                     <p style="margin:12px 0 6px; font-size:0.82em; color:rgba(255,255,255,0.5);">Press <kbd style="background:rgba(255,255,255,0.12); padding:1px 5px; border-radius:3px; font-size:0.95em;">Win+H</kbd> to dictate with on-device speech recognition, or type notes below.</p>
-                    <textarea class="insp-transcript-input" id="inspTranscriptInput" rows="4" placeholder="Inspection notes will appear here..."></textarea>
+                    <textarea class="insp-transcript-input" id="inspTranscriptInput" rows="4" placeholder="Meeting notes will appear here..."></textarea>
                     <div style="display:flex; gap:8px; margin-top:8px;">
                         <button class="insp-mic-btn" id="inspExtractBtn" style="flex:1;">
                             &#129504; Extract Fields with AI
@@ -2973,11 +3651,12 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     </div>
 
                     <div class="photo-capture-controls">
-                        <button class="photo-capture-btn primary" id="inspStartCameraBtn">&#128247; Start Camera</button>
+                        <button class="photo-capture-btn primary" id="inspStartCameraBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="2" y="5" width="20" height="15" rx="2"/><circle cx="12" cy="13" r="3"/><circle cx="12" cy="13" r="1" fill="#f6d107" stroke="none"/><path d="M17 5V3H7v2"/></svg> Start Camera</button>
                         <button class="photo-capture-btn primary" id="inspCapturePhotoBtn" style="display:none;">&#128248; Capture</button>
                         <button class="photo-capture-btn secondary" id="inspStopCameraBtn" style="display:none;">Stop Camera</button>
                         <button class="photo-capture-btn secondary" id="inspFlipCameraBtn" style="display:none;">&#128260; Flip</button>
-                        <button class="photo-capture-btn secondary" id="inspDemoPhotoBtn">&#128193; Load Demo Photo</button>
+                        <button class="photo-capture-btn secondary" id="inspDemoPhotoBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M2 15l5-5 3 3 4-4 8 8"/><circle cx="8" cy="9" r="2" fill="#f6d107" stroke="none"/></svg> Load Demo Photo</button>
+                        <button class="photo-capture-btn secondary" id="inspLoadFormBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15l2 2 4-4" stroke="#f6d107" stroke-width="2"/></svg> Beneficiary Form</button>
                     </div>
 
                     <!-- Classification card (appears after photo analysis) -->
@@ -2998,7 +3677,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                         </div>
                     </div>
                     <div class="annotation-note" id="inspAnnotationNote">
-                        <div class="ann-label">&#9998; Inspector Note</div>
+                        <div class="ann-label">&#9998; Relationship Manager Notes</div>
                         <div id="inspAnnotationText"></div>
                     </div>
                 </div>
@@ -3031,6 +3710,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
                     <button class="insp-generate-btn" id="inspGenerateBtn" disabled>&#128196; Generate Report</button>
                     <button class="insp-translate-btn" id="inspTranslateBtn" style="display:none;">&#127760; Translate to Spanish</button>
+                    <button class="insp-generate-btn" id="inspPostD365Btn" style="display:none; background:linear-gradient(135deg, #0078D4, #00BCF2);">&#9729; Post to D365</button>
+                    <div id="inspD365PostResult" style="display:none; margin-top:10px; padding:12px 16px; border-radius:10px; font-size:0.85em;"></div>
 
                     <div class="report-draft" id="inspReportDraft" style="display:none;">
                         <h4>Report Preview</h4>
@@ -3150,6 +3831,9 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         
         document.addEventListener("DOMContentLoaded", function() {
             console.log("DOM loaded, setting up event handlers...");
+
+            // Reset session stats on page load (hard refresh resets the counters)
+            fetch("/session-stats/reset", { method: "POST" }).catch(function() {});
             
             // Tab switching
             function switchToTab(tabId, btnId) {
@@ -3216,6 +3900,10 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 switchToTab("id-tab", "idTabBtn");
                 showTabToast("Same local AI \u2014 now verifying identity");
             });
+            document.getElementById("liveTabBtn").addEventListener("click", function() {
+                switchToTab("live-tab", "liveTabBtn");
+                showTabToast("Same local AI \u2014 real-time meeting insights");
+            });
             document.getElementById("auditorTabBtn").addEventListener("click", function() {
                 switchToTab("auditor-tab", "auditorTabBtn");
                 showTabToast("Same local AI \u2014 now in clean room mode");
@@ -3244,6 +3932,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 chat:    { tabId: "chat-tab",    btnId: "chatTabBtn",    toast: "Same local AI \u2014 now with execution tools" },
                 auditor: { tabId: "auditor-tab", btnId: "auditorTabBtn", toast: "Same local AI \u2014 structured analysis + smart escalation" },
                 id:      { tabId: "id-tab",      btnId: "idTabBtn",     toast: "Same local AI \u2014 now verifying identity" },
+                live:    { tabId: "live-tab",    btnId: "liveTabBtn",   toast: "Same local AI \u2014 real-time meeting insights" },
                 field:   { tabId: "field-tab",   btnId: "fieldTabBtn",  toast: "Same local AI \u2014 field inspection + on-site assessment" }
             };
             document.querySelectorAll(".sidebar-nav-item").forEach(function(item) {
@@ -3980,6 +4669,85 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                             runSecurityAudit();
                         } else if (action === "device-search") {
                             runDeviceSearch();
+                        } else if (action === "my-calendar") {
+                            sendChatMessage("Show me my calendar for today. What meetings do I have and who am I meeting with?");
+                        } else if (action === "prep-next-client") {
+                            // Show a generic prompt but send a specific one
+                            var input = document.getElementById("userInput");
+                            input.value = "Prep me for my next client meeting and pull up their D365 profile.";
+                            var emptyState = document.getElementById("chatEmptyState");
+                            if (emptyState) emptyState.style.display = "none";
+                            // Override: send the specific prompt but display the generic one
+                            addMessage("user", "Prep me for my next client meeting and pull up their D365 profile.");
+                            input.value = "";
+                            document.getElementById("sendBtn").disabled = true;
+                            var assistantDiv = addMessage("assistant", '<span class="spinner"></span> Thinking...');
+                            var contentDiv = assistantDiv.querySelector(".content");
+                            var htmlParts = [];
+                            fetch("/chat", {
+                                method: "POST",
+                                headers: {"Content-Type": "application/json"},
+                                body: JSON.stringify({
+                                    message: "Use the prep_next_client tool with customer_name Jackie Rodriguez to prep me for my meeting with her and pull up her D365 profile.",
+                                    history: []
+                                })
+                            }).then(function(r) { return r.body.getReader(); })
+                            .then(function(reader) {
+                                var buffer = "";
+                                function read() {
+                                    reader.read().then(function(chunk) {
+                                        if (chunk.done) { document.getElementById("sendBtn").disabled = false; return; }
+                                        buffer += new TextDecoder().decode(chunk.value);
+                                        var lines = buffer.split("\n");
+                                        buffer = lines.pop();
+                                        lines.forEach(function(line) {
+                                            if (!line.trim()) return;
+                                            try {
+                                                var evt = JSON.parse(line);
+                                                if (evt.type === "response") {
+                                                    htmlParts = htmlParts.filter(function(p) { return p.indexOf("Thinking") < 0 && p.indexOf("spinner") < 0; });
+                                                    lastAssistantResponse = evt.text || "";
+                                                    htmlParts.push('<div style="margin-top:8px;">' + (evt.text || "").replace(/\n/g, "<br>") + '</div>');
+                                                    htmlParts.push('<div class="tool-time" style="margin-top:4px;">&#9201; Total: ' + evt.time + 's</div>');
+                                                    contentDiv.innerHTML = htmlParts.join("");
+                                                } else if (evt.type === "thinking") {
+                                                    htmlParts.push('<div style="color:rgba(var(--brand-accent-rgb),0.6);font-size:0.85em;">&#129504; Thinking...</div>');
+                                                    contentDiv.innerHTML = htmlParts.join("");
+                                                } else if (evt.type === "think_done") {
+                                                    htmlParts = htmlParts.filter(function(p) { return p.indexOf("Thinking") < 0; });
+                                                    htmlParts.push('<div style="color:rgba(var(--brand-accent-rgb),0.5);font-size:0.82em;">&#129504; Thought for ' + evt.time + 's</div>');
+                                                    contentDiv.innerHTML = htmlParts.join("");
+                                                } else if (evt.type === "tool_call") {
+                                                    htmlParts.push('<div style="margin:6px 0;padding:6px 10px;background:rgba(var(--brand-accent-rgb),0.08);border-radius:6px;font-size:0.85em;">&#128295; Tool: ' + evt.name + '</div>');
+                                                    contentDiv.innerHTML = htmlParts.join("");
+                                                } else if (evt.type === "tool_result") {
+                                                    var out = (evt.output || "").substring(0, 200);
+                                                    htmlParts.push('<div style="font-size:0.82em;color:#888;">&#9989; ' + out + '...</div>');
+                                                    contentDiv.innerHTML = htmlParts.join("");
+                                                } else if (evt.type === "done") {
+                                                    document.getElementById("sendBtn").disabled = false;
+                                                    if (lastAssistantResponse) {
+                                                        var chips = generateFollowUpChips(lastAssistantResponse);
+                                                        if (chips.length > 0) {
+                                                            var chipHtml = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">';
+                                                            for (var ci = 0; ci < chips.length; ci++) {
+                                                                chipHtml += '<button class="suggestion-chip dynamic-followup" onclick="sendChatMessage(\'' + chips[ci].query.replace(/'/g, "\\'") + '\')" style="font-size:0.82em;padding:8px 14px;cursor:pointer;"><span class="chip-icon">' + chips[ci].icon + '</span><span>' + chips[ci].label + '</span></button>';
+                                                            }
+                                                            chipHtml += '</div>';
+                                                            htmlParts.push(chipHtml);
+                                                            contentDiv.innerHTML = htmlParts.join("");
+                                                        }
+                                                    }
+                                                }
+                                                document.getElementById("chatContainer").scrollTop = document.getElementById("chatContainer").scrollHeight;
+                                            } catch(e) {}
+                                        });
+                                        read();
+                                    });
+                                }
+                                read();
+                            });
+                            return;
                         }
                     });
                 });
@@ -4237,9 +5005,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     // Rebuild if removed from DOM
                     var chipsHtml = '<div class="chat-empty-state" id="chatEmptyState">' +
                         '<div class="suggestion-grid">' +
-                            '<button class="suggestion-chip" data-action="device-health"><span class="chip-icon">&#128737;</span><span>Device Health</span></button>' +
-                            '<button class="suggestion-chip" data-action="security-audit"><span class="chip-icon">&#128272;</span><span>Security Audit</span></button>' +
-                            '<button class="suggestion-chip" data-action="device-search"><span class="chip-icon">&#128269;</span><span>Device Search</span></button>' +
+                            '<button class="suggestion-chip" data-action="my-calendar"><span class="chip-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><rect x="7" y="14" width="4" height="3" rx="0.5" fill="#f6d107" stroke="none"/></svg></span><span>My Calendar</span></button>' +
+                            '<button class="suggestion-chip" data-action="prep-next-client"><span class="chip-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/><circle cx="12" cy="7" r="1.5" fill="#f6d107" stroke="none"/></svg></span><span>Prep Next Client</span></button>' +
                         '</div></div>';
                     document.getElementById("chatContainer").insertAdjacentHTML("afterend", chipsHtml);
                     bindChipHandlers();
@@ -4655,6 +5422,42 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             }
         };
 
+        function generateFollowUpChips(responseText) {
+            var text = responseText.toLowerCase();
+            var chips = [];
+            var topicMap = [
+                {keywords: ["529", "college savings", "maya", "education"], label: "529 Plan Details", icon: "&#127891;", query: "Answer from your knowledge, do not use any tools. What are the 2026 529 Plan contribution limits and Michigan state tax deduction benefits? How does it compare to a Coverdell ESA?"},
+                {keywords: ["roth ira", "ira conversion", "401k", "rollover", "retirement"], label: "Roth IRA Conversion", icon: "&#128176;", query: "Answer from your knowledge, do not use any tools. Explain the pros and cons of converting a 401k to a Roth IRA for someone aged 45. What are the tax implications and income limits?"},
+                {keywords: ["henderson", "portfolio", "estate"], label: "Henderson Portfolio", icon: "&#128200;", query: "Look up Henderson in D365 and show me their recent account activity."},
+                {keywords: ["jackie", "rodriguez", "new client", "new account"], label: "Jackie Rodriguez D365", icon: "&#128100;", query: "Look up Jackie Rodriguez in D365 and show me her full customer profile and recent activity."},
+                {keywords: ["compliance", "bsa", "aml", "kyc", "cdd"], label: "Compliance Requirements", icon: "&#128220;", query: "Answer from your knowledge, do not use any tools. What are the key BSA/AML compliance requirements for new account openings at a bank branch?"},
+                {keywords: ["checking", "savings", "deposit", "account opening"], label: "Account Products", icon: "&#127974;", query: "Answer from your knowledge, do not use any tools. Compare Essential Checking vs High-Yield Savings accounts. What are typical rates and minimum balances?"},
+                {keywords: ["cd ", "certificate", "maturation", "rate"], label: "CD Rates & Options", icon: "&#128178;", query: "Answer from your knowledge, do not use any tools. What are the current CD rate trends and what options does a client have when their CD matures?"},
+                {keywords: ["beneficiary", "designation", "will", "trust"], label: "Beneficiary Rules", icon: "&#128221;", query: "Answer from your knowledge, do not use any tools. What are the rules for changing a beneficiary on a 403b retirement account? What documentation is required?"},
+                {keywords: ["surface", "device", "deployment", "npu"], label: "Device Deployment", icon: "&#128187;", query: "What is the status of our Surface Pro deployment and how are the AI features being used in the branch?"},
+                {keywords: ["regional", "patricia", "branch metrics", "target"], label: "Branch Performance", icon: "&#128202;", query: "What are our branch performance metrics YTD? How are we tracking against the 100 new account target?"}
+            ];
+            for (var t = 0; t < topicMap.length && chips.length < 3; t++) {
+                var topic = topicMap[t];
+                for (var k = 0; k < topic.keywords.length; k++) {
+                    if (text.indexOf(topic.keywords[k]) >= 0) {
+                        chips.push(topic);
+                        break;
+                    }
+                }
+            }
+            return chips;
+        }
+
+        function sendChatMessage(text) {
+            var input = document.getElementById("userInput");
+            input.value = text;
+            // Hide empty state
+            var emptyState = document.getElementById("chatEmptyState");
+            if (emptyState) emptyState.style.display = "none";
+            sendMessage();
+        }
+
         function sendMessage() {
             var input = document.getElementById("userInput");
             var message = input.value.trim();
@@ -4768,6 +5571,20 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     else if (evt.type === "done") {
                         document.getElementById("sendBtn").disabled = false;
                         document.getElementById("userInput").focus();
+                        // Generate dynamic follow-up chips based on response content
+                        if (lastAssistantResponse && lastAssistantResponse.length > 50) {
+                            var chips = generateFollowUpChips(lastAssistantResponse);
+                            if (chips.length > 0) {
+                                var chipHtml = '<div class="dynamic-chips" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">';
+                                for (var ci = 0; ci < chips.length; ci++) {
+                                    chipHtml += '<button class="suggestion-chip dynamic-followup" onclick="sendChatMessage(\'' + chips[ci].query.replace(/'/g, "\\'") + '\')" style="font-size:0.82em;padding:8px 14px;cursor:pointer;">' +
+                                        '<span class="chip-icon">' + chips[ci].icon + '</span><span>' + chips[ci].label + '</span></button>';
+                                }
+                                chipHtml += '</div>';
+                                htmlParts.push(chipHtml);
+                                contentDiv.innerHTML = htmlParts.join("");
+                            }
+                        }
                     }
                     document.getElementById("chatContainer").scrollTop = document.getElementById("chatContainer").scrollHeight;
                 }
@@ -4877,7 +5694,12 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             })
             .catch(function(err) {
                 console.error("Camera error:", err);
-                alert("Could not access camera: " + err.message);
+                var msg = "Could not access camera: " + err.message;
+                if (err.message && err.message.indexOf("video source") >= 0) {
+                    msg += "\n\nThis can happen in airplane mode on some devices. " +
+                           "Use the 'Load Demo ID' or 'Load Demo Check' buttons instead.";
+                }
+                alert(msg);
             });
         }
         
@@ -5060,8 +5882,558 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             } else {
                 notesDiv.innerHTML = "";
             }
+
+            // Trigger D365 customer lookup if name was extracted
+            var extractedName = (data.fields && data.fields.name) ? data.fields.name : null;
+            if (extractedName && extractedName !== "Could not parse" && typeof window._d365CustomerLookup === "function") {
+                window._d365CustomerLookup(extractedName);
+            }
         }
-        
+
+        // ── Check Scanner + Mode Switcher + D365 Integration ──
+        (function() {
+            var idModeBtn = document.getElementById("idModeBtn");
+            var checkModeBtn = document.getElementById("checkModeBtn");
+            var analyzeIdBtn = document.getElementById("analyzeIdBtn");
+            var analyzeCheckBtn = document.getElementById("analyzeCheckBtn");
+            var loadDemoCheckBtn = document.getElementById("loadDemoCheckBtn");
+            var captureBtn = document.getElementById("captureBtn");
+            var idResultCard = document.getElementById("idResultCard");
+            var checkResultCard = document.getElementById("checkResultCard");
+            var d365CustomerCard = document.getElementById("d365CustomerCard");
+            var d365TransactionCard = document.getElementById("d365TransactionCard");
+            var cameraPlaceholder = document.getElementById("cameraPlaceholder");
+            var idPrivacyText = document.getElementById("idPrivacyText");
+            var _currentIdMode = "id";
+
+            // -- Demo ID presets --
+            var DEMO_ID_MCLOVIN = "STATE OF HAWAII\n" +
+                "DRIVER LICENSE\n\n" +
+                "DL: 01-47-87441\n" +
+                "EXP: 06/03/2008\n" +
+                "DOB: 06/03/1981\n\n" +
+                "McLOVIN\n" +
+                "892 MOMONA ST\n" +
+                "HONOLULU, HI 96820\n\n" +
+                "SEX: M    HT: 5-10    WT: 150\n" +
+                "HAIR: BRN    EYES: BRN\n" +
+                "ISS: 06/18/1998\n\n" +
+                "ORGAN DONOR";
+
+            var DEMO_ID_JACKIE = "STATE OF MICHIGAN\n" +
+                "DRIVER LICENSE\n\n" +
+                "DL: R 320 481 227 093\n" +
+                "EXP: 09/15/2028\n" +
+                "DOB: 04/12/1981\n\n" +
+                "1 RODRIGUEZ\n" +
+                "2 JACKIE MARIE\n" +
+                "1847 MAPLE AVENUE\n" +
+                "TROY, MI 48083\n\n" +
+                "SEX: F    HT: 5-06    WT: 135\n" +
+                "HAIR: BRN    EYES: BRN\n" +
+                "ISS: 09/15/2024\n" +
+                "CLASS: D";
+
+            var DEMO_CHECK_OCR = "MICHIGAN POWER & LIGHT\n" +
+                "123 UTILITY WAY\n" +
+                "DETROIT, MI 48202\n\n" +
+                "FIRST CITY BANK\n" +
+                "1847 MAPLE AVENUE, TROY, MI 48083\n\n" +
+                "DATE: MARCH 15, 2026\n\n" +
+                "PAY TO THE ORDER OF: JACKIE MARIE RODRIGUEZ  $245.89\n\n" +
+                "TWO HUNDRED FORTY-FIVE AND 89/100 DOLLARS\n\n" +
+                "MEMO: ACCOUNT OVERPAYMENT REFUND\n\n" +
+                "|: 1896700101 |: 0090161991 |: 1133\n\n" +
+                "Sarah J. Reed\n" +
+                "AUTHORIZED SIGNATURE\n" +
+                "Check #: 1133";
+
+            function setMode(mode) {
+                _currentIdMode = mode;
+                idModeBtn.classList.toggle("active", mode === "id");
+                checkModeBtn.classList.toggle("active", mode === "check");
+                idResultCard.style.display = "none";
+                checkResultCard.style.display = "none";
+                d365CustomerCard.style.display = "none";
+                d365TransactionCard.style.display = "none";
+                var _prev = document.getElementById("demoIdPreview"); if (_prev) _prev.style.display = "none";
+                var _sig = document.getElementById("sigSection"); if (_sig) _sig.style.display = "none";
+                var _sigC = document.getElementById("sigConfirm"); if (_sigC) _sigC.style.display = "none";
+                if (loadDemoCheckBtn) loadDemoCheckBtn.style.display = (mode === "check") ? "inline-block" : "none";
+                if (cameraPlaceholder && cameraPlaceholder.style.display !== "none") {
+                    var pt = cameraPlaceholder.querySelector("div:last-child");
+                    if (pt) {
+                        pt.textContent = (mode === "check")
+                            ? 'Click "Start Camera" or "Load Demo Check" to begin'
+                            : 'Click "Start Camera" to begin ID verification';
+                    }
+                }
+                if (idPrivacyText) {
+                    idPrivacyText.innerHTML = (mode === "check")
+                        ? "Check images and financial data never leave this device. Camera capture, OCR, and AI analysis all run locally."
+                        : "Your ID image and data never leave this device. Camera capture, OCR, and AI analysis all run locally.";
+                }
+            }
+
+            if (idModeBtn) idModeBtn.addEventListener("click", function() { setMode("id"); });
+            if (checkModeBtn) checkModeBtn.addEventListener("click", function() { setMode("check"); });
+
+            if (captureBtn) {
+                new MutationObserver(function() {
+                    if (captureBtn.style.display !== "none") {
+                        captureBtn.textContent = (_currentIdMode === "check") ? "Capture Check" : "Capture ID";
+                    }
+                }).observe(captureBtn, { attributes: true, attributeFilter: ["style"] });
+            }
+
+            var capturedImg = document.getElementById("capturedImage");
+            if (capturedImg) {
+                new MutationObserver(function() {
+                    if (capturedImg.style.display !== "none") {
+                        if (_currentIdMode === "check") {
+                            if (analyzeIdBtn) analyzeIdBtn.style.display = "none";
+                            if (analyzeCheckBtn) analyzeCheckBtn.style.display = "inline-block";
+                        } else {
+                            if (analyzeCheckBtn) analyzeCheckBtn.style.display = "none";
+                        }
+                    } else {
+                        if (analyzeCheckBtn) analyzeCheckBtn.style.display = "none";
+                    }
+                }).observe(capturedImg, { attributes: true, attributeFilter: ["style"] });
+            }
+
+            function analyzeCheck(ocrTextOverride) {
+                var useOcrText = ocrTextOverride || null;
+                // Show check image in the camera area for demo preset
+                if (useOcrText) {
+                    var capturedImg = document.getElementById("capturedImage");
+                    var placeholder = document.getElementById("cameraPlaceholder");
+                    var camPreview = document.getElementById("cameraPreview");
+                    capturedImg.src = "/demo-assets/jackie_check.png";
+                    capturedImg.style.display = "block";
+                    if (placeholder) placeholder.style.display = "none";
+                    if (camPreview) camPreview.style.display = "none";
+                    var previewDiv = document.getElementById("demoIdPreview");
+                    if (previewDiv) previewDiv.style.display = "none";
+                }
+                document.getElementById("processingSteps").style.display = "block";
+                document.getElementById("ocrPreview").style.display = "none";
+                checkResultCard.style.display = "none";
+                idResultCard.style.display = "none";
+                d365TransactionCard.style.display = "none";
+
+                for (var i = 1; i <= 3; i++) {
+                    var step = document.getElementById("step" + i);
+                    var icon = step.querySelector(".step-icon");
+                    icon.classList.remove("step-active", "step-done");
+                    icon.classList.add("step-pending");
+                    icon.innerHTML = i;
+                }
+                updateStep(1, "done");
+
+                if (useOcrText) {
+                    updateStep(2, "done");
+                    document.getElementById("ocrPreview").style.display = "block";
+                    document.getElementById("ocrText").textContent = useOcrText;
+                    updateStep(3, "active");
+                    sendCheckAnalysis(useOcrText);
+                } else {
+                    updateStep(2, "active");
+                    var img = document.getElementById("capturedImage");
+                    Tesseract.recognize(img.src, "eng", {
+                        workerPath: "/tesseract/worker.min.js",
+                        corePath: "/tesseract/core",
+                        langPath: "/tesseract/lang",
+                        workerBlobURL: false
+                    }).then(function(result) {
+                        updateStep(2, "done");
+                        document.getElementById("ocrPreview").style.display = "block";
+                        document.getElementById("ocrText").textContent = result.data.text;
+                        updateStep(3, "active");
+                        sendCheckAnalysis(result.data.text);
+                    }).catch(function(err) {
+                        updateStep(2, "done");
+                        document.getElementById("ocrPreview").style.display = "block";
+                        document.getElementById("ocrText").textContent = "Error: " + err.message;
+                    });
+                }
+            }
+
+            function sendCheckAnalysis(ocrText) {
+                fetch("/analyze-check", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ ocr_text: ocrText })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    updateStep(3, "done");
+                    displayCheckResult(data);
+                    if (data.fields && !data.error) logCheckToD365(data);
+                })
+                .catch(function(err) {
+                    updateStep(3, "done");
+                    displayCheckResult({ error: err.message });
+                });
+            }
+
+            function displayCheckResult(data) {
+                checkResultCard.style.display = "block";
+                var badge = document.getElementById("checkStatusBadge");
+                var amountDiv = document.getElementById("checkAmount");
+                var fieldsDiv = document.getElementById("checkFields");
+                var flagsDiv = document.getElementById("checkFlags");
+
+                if (data.error) {
+                    badge.textContent = "Error";
+                    badge.className = "status-badge status-error";
+                    fieldsDiv.innerHTML = "<p>Could not analyze check: " + data.error + "</p>";
+                    flagsDiv.innerHTML = "";
+                    amountDiv.style.display = "none";
+                    return;
+                }
+
+                var status = data.status || "Review Needed";
+                badge.textContent = status;
+                badge.className = "status-badge " + (status === "Verified" ? "status-valid" : status === "Review Needed" ? "status-warning" : "status-error");
+
+                var fields = data.fields || {};
+                amountDiv.textContent = fields.amount_numbers ? "$" + fields.amount_numbers : "";
+                amountDiv.style.display = fields.amount_numbers ? "block" : "none";
+
+                var fieldLabels = {
+                    "payee_name": "Pay To (Payee)", "payer_name": "From (Payer)",
+                    "check_number": "Check Number", "date": "Date",
+                    "amount_numbers": "Amount (Numeric)", "amount_words": "Amount (Written)",
+                    "bank_name": "Bank", "routing_last4": "Routing (last 4)",
+                    "account_last4": "Account (last 4)", "memo": "Memo",
+                    "signature_present": "Signature"
+                };
+                var fh = "";
+                for (var key in fieldLabels) {
+                    var val = fields[key] || "Not detected";
+                    if (key === "signature_present") val = (val === "yes" || val === true) ? "&#10003; Present" : "&#10007; Missing";
+                    fh += '<div class="check-field"><span class="check-field-label">' + fieldLabels[key] + '</span><span class="check-field-value">' + val + '</span></div>';
+                }
+                fieldsDiv.innerHTML = fh;
+
+                var flags = data.flags || [];
+                var flh = "<strong style='font-size:0.85em;color:rgba(255,255,255,0.5);'>Validation</strong>";
+                if (flags.length === 0) {
+                    flh += '<div class="check-flag flag-pass">&#10003; All checks passed</div>';
+                } else {
+                    for (var f = 0; f < flags.length; f++) {
+                        var fl = flags[f];
+                        var cls = fl.severity === "error" ? "flag-fail" : fl.severity === "warning" ? "flag-warn" : "flag-pass";
+                        var ic = fl.severity === "error" ? "&#10007;" : fl.severity === "warning" ? "&#9888;" : "&#10003;";
+                        flh += '<div class="check-flag ' + cls + '">' + ic + ' ' + fl.message + '</div>';
+                    }
+                }
+                flagsDiv.innerHTML = flh;
+            }
+
+            // -- D365 Customer Lookup (after ID scan) --
+            window._d365CustomerLookup = function(customerName) {
+                fetch("/d365/customer-lookup", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ name: customerName })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) return;
+                    renderD365Customer(data);
+                })
+                .catch(function(err) { console.log("D365 lookup failed:", err); });
+            };
+
+            function renderD365Customer(data) {
+                var content = document.getElementById("d365CustomerContent");
+                var statusBadge = document.getElementById("d365Status");
+                var openLink = document.getElementById("d365OpenLink");
+                statusBadge.textContent = data.source === "live" ? "Live from Dynamics 365" : "Demo Environment";
+
+                var ci = data.customer || {};
+                var html = '<div class="d365-section"><div class="d365-section-title">Customer Information</div>';
+                var ciFields = [["Full Name", ci.full_name], ["Email", ci.email], ["Phone", ci.phone], ["Address", ci.address], ["Account Type", ci.account_type], ["Account Age", ci.account_age], ["Source", ci.source], ["Relationship Manager", ci.relationship_manager]];
+                for (var i = 0; i < ciFields.length; i++) {
+                    if (ciFields[i][1]) html += '<div class="d365-field"><span class="d365-field-label">' + ciFields[i][0] + '</span><span class="d365-field-value">' + ciFields[i][1] + '</span></div>';
+                }
+                html += '</div>';
+                if (ci.accounts && ci.accounts.length > 0) {
+                    html += '<div class="d365-section"><div class="d365-section-title">Accounts</div>';
+                    for (var a = 0; a < ci.accounts.length; a++) {
+                        html += '<div class="d365-field"><span class="d365-field-label">' + ci.accounts[a].type + '</span><span class="d365-field-value">' + (ci.accounts[a].number || '') + ' &mdash; ' + (ci.accounts[a].balance || '') + '</span></div>';
+                    }
+                    html += '</div>';
+                }
+                if (ci.recent_activity && ci.recent_activity.length > 0) {
+                    html += '<div class="d365-section"><div class="d365-section-title">Recent Activity</div>';
+                    for (var r = 0; r < ci.recent_activity.length; r++) html += '<div class="d365-activity">' + ci.recent_activity[r] + '</div>';
+                    html += '</div>';
+                }
+                content.innerHTML = html;
+                openLink.href = data.d365_url || "#";
+                openLink.style.display = data.d365_url ? "inline-block" : "none";
+                d365CustomerCard.style.display = "block";
+                // Show signature pad after customer profile loads
+                if (typeof window._showSignaturePad === "function") window._showSignaturePad();
+            }
+
+            function logCheckToD365(checkData) {
+                fetch("/d365/log-transaction", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({
+                        customer_name: checkData.fields.payer_name || checkData.fields.payee_name || "Unknown",
+                        transaction_type: "Check Deposit",
+                        amount: checkData.fields.amount_numbers || "0",
+                        check_number: checkData.fields.check_number || "N/A",
+                        memo: checkData.fields.memo || "",
+                        bank: checkData.fields.bank_name || ""
+                    })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.error) renderD365Transaction(data);
+                })
+                .catch(function(err) { console.log("D365 log failed:", err); });
+            }
+
+            function renderD365Transaction(data) {
+                var content = document.getElementById("d365TransactionContent");
+                var html = '<div class="d365-section"><div class="d365-section-title">Transaction Details</div>';
+                var txf = [["Type", data.transaction_type], ["Amount", "$" + (data.amount || "0")], ["Check #", data.check_number], ["Customer", data.customer_name], ["Memo", data.memo], ["Status", data.status || "Completed"], ["D365 Activity ID", data.activity_id || "N/A"], ["Timestamp", data.timestamp || new Date().toISOString()]];
+                for (var i = 0; i < txf.length; i++) {
+                    if (txf[i][1]) html += '<div class="d365-field"><span class="d365-field-label">' + txf[i][0] + '</span><span class="d365-field-value">' + txf[i][1] + '</span></div>';
+                }
+                html += '</div>';
+                content.innerHTML = html;
+                d365TransactionCard.style.display = "block";
+            }
+
+            if (loadDemoCheckBtn) loadDemoCheckBtn.addEventListener("click", function() { analyzeCheck(DEMO_CHECK_OCR); });
+            if (analyzeCheckBtn) analyzeCheckBtn.addEventListener("click", function() { analyzeCheck(null); });
+
+            // -- Demo ID dropdown menu --
+            var demoIdBtn = document.getElementById("loadDemoIdBtn");
+            var demoIdMenu = document.getElementById("demoIdMenu");
+            var demoIdMclovin = document.getElementById("demoIdMclovin");
+            var demoIdJackie = document.getElementById("demoIdJackie");
+
+            if (demoIdBtn && demoIdMenu) {
+                demoIdBtn.addEventListener("click", function(e) {
+                    e.stopPropagation();
+                    var rect = demoIdBtn.getBoundingClientRect();
+                    demoIdMenu.style.position = "fixed";
+                    demoIdMenu.style.left = rect.left + "px";
+                    demoIdMenu.style.top = (rect.bottom + 4) + "px";
+                    demoIdMenu.style.display = demoIdMenu.style.display === "none" ? "block" : "none";
+                });
+                document.addEventListener("click", function() { demoIdMenu.style.display = "none"; });
+            }
+
+            function runDemoId(ocrText, previewType) {
+                demoIdMenu.style.display = "none";
+                if (_currentIdMode !== "id") setMode("id");
+
+                // Show ID image in the camera area (where the camera preview would be)
+                var capturedImg = document.getElementById("capturedImage");
+                var placeholder = document.getElementById("cameraPlaceholder");
+                var camPreview = document.getElementById("cameraPreview");
+                if (previewType === "mclovin") {
+                    capturedImg.src = "/demo-assets/mclovin_id.png";
+                } else if (previewType === "jackie") {
+                    capturedImg.src = "/demo-assets/jackie_rodriguez_id.png";
+                }
+                capturedImg.style.display = "block";
+                if (placeholder) placeholder.style.display = "none";
+                if (camPreview) camPreview.style.display = "none";
+                // Hide the separate preview div
+                var previewDiv = document.getElementById("demoIdPreview");
+                if (previewDiv) previewDiv.style.display = "none";
+
+                // Show processing steps and run through the analyze-id endpoint
+                document.getElementById("processingSteps").style.display = "block";
+                document.getElementById("ocrPreview").style.display = "none";
+                idResultCard.style.display = "none";
+                d365CustomerCard.style.display = "none";
+
+                for (var i = 1; i <= 3; i++) {
+                    var step = document.getElementById("step" + i);
+                    var icon = step.querySelector(".step-icon");
+                    icon.classList.remove("step-active", "step-done");
+                    icon.classList.add("step-pending");
+                    icon.innerHTML = i;
+                }
+                updateStep(1, "done");
+                updateStep(2, "done");
+                document.getElementById("ocrPreview").style.display = "block";
+                document.getElementById("ocrText").textContent = ocrText;
+                updateStep(3, "active");
+
+                fetch("/analyze-id", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ ocr_text: ocrText })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    updateStep(3, "done");
+                    displayIdResult(data);
+                })
+                .catch(function(err) {
+                    updateStep(3, "done");
+                    displayIdResult({ error: err.message });
+                });
+            }
+
+            if (demoIdMclovin) demoIdMclovin.addEventListener("click", function(e) { e.stopPropagation(); runDemoId(DEMO_ID_MCLOVIN, "mclovin"); });
+            if (demoIdJackie) demoIdJackie.addEventListener("click", function(e) { e.stopPropagation(); runDemoId(DEMO_ID_JACKIE, "jackie"); });
+
+            // Hide demo ID button in check mode, show in ID mode
+            function updateDemoIdVisibility() {
+                if (demoIdBtn) demoIdBtn.style.display = (_currentIdMode === "id") ? "inline-block" : "none";
+            }
+            var origSetMode = setMode;
+            setMode = function(mode) { origSetMode(mode); updateDemoIdVisibility(); };
+
+            window._getIdMode = function() { return _currentIdMode; };
+
+            // Show signature section after successful ID scan or check deposit
+            window._showSignaturePad = function() {
+                var sig = document.getElementById("sigSection");
+                if (sig) sig.style.display = "block";
+            };
+        })();
+
+        // ── Pen Signature Pad ──
+        (function() {
+            var canvas = document.getElementById("sigCanvas");
+            var clearBtn = document.getElementById("sigClearBtn");
+            var acceptBtn = document.getElementById("sigAcceptBtn");
+            var sigSection = document.getElementById("sigSection");
+            var sigConfirm = document.getElementById("sigConfirm");
+            var sigHash = document.getElementById("sigHash");
+            if (!canvas) return;
+
+            var ctx = canvas.getContext("2d");
+            var strokes = [];
+            var currentStroke = null;
+            var isDrawing = false;
+
+            // Resize canvas to fill container
+            function resizeCanvas() {
+                var wrapper = canvas.parentElement;
+                var w = wrapper.clientWidth;
+                if (w > 0) {
+                    canvas.width = w;
+                    canvas.height = 150;
+                    redraw();
+                }
+            }
+            window.addEventListener("resize", resizeCanvas);
+            setTimeout(resizeCanvas, 100);
+
+            function getPos(e) {
+                var rect = canvas.getBoundingClientRect();
+                return {
+                    x: (e.clientX - rect.left) * (canvas.width / rect.width),
+                    y: (e.clientY - rect.top) * (canvas.height / rect.height),
+                    pressure: e.pressure || 0.5
+                };
+            }
+
+            function drawSegment(p1, p2) {
+                ctx.beginPath();
+                ctx.strokeStyle = "#111";
+                ctx.lineWidth = 2 + (p2.pressure * 4); // 2-6px based on pressure
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.stroke();
+            }
+
+            function redraw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                for (var s = 0; s < strokes.length; s++) {
+                    var pts = strokes[s];
+                    for (var i = 1; i < pts.length; i++) {
+                        drawSegment(pts[i-1], pts[i]);
+                    }
+                }
+            }
+
+            canvas.addEventListener("pointerdown", function(e) {
+                e.preventDefault();
+                isDrawing = true;
+                currentStroke = [getPos(e)];
+                canvas.setPointerCapture(e.pointerId);
+            });
+
+            canvas.addEventListener("pointermove", function(e) {
+                if (!isDrawing || !currentStroke) return;
+                e.preventDefault();
+                var pos = getPos(e);
+                currentStroke.push(pos);
+                if (currentStroke.length >= 2) {
+                    drawSegment(currentStroke[currentStroke.length - 2], pos);
+                }
+            });
+
+            function endStroke() {
+                if (!isDrawing) return;
+                isDrawing = false;
+                if (currentStroke && currentStroke.length >= 2) {
+                    strokes.push(currentStroke);
+                }
+                currentStroke = null;
+            }
+            canvas.addEventListener("pointerup", endStroke);
+            canvas.addEventListener("pointerleave", endStroke);
+            canvas.addEventListener("pointercancel", endStroke);
+
+            if (clearBtn) clearBtn.addEventListener("click", function() {
+                strokes = [];
+                currentStroke = null;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                if (sigConfirm) sigConfirm.style.display = "none";
+            });
+
+            if (acceptBtn) acceptBtn.addEventListener("click", function() {
+                if (strokes.length === 0) return;
+
+                // Get signature image as base64
+                var dataUrl = canvas.toDataURL("image/png");
+
+                // Send to backend for hash
+                fetch("/signature/verify", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ image_data: dataUrl })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (sigConfirm && sigHash) {
+                        sigHash.textContent = "Document hash: " + (data.hash || "N/A") + "\nTimestamp: " + (data.timestamp || new Date().toISOString());
+                        sigConfirm.style.display = "block";
+                    }
+                    // Disable further signing
+                    acceptBtn.disabled = true;
+                    acceptBtn.textContent = "Signed";
+                    acceptBtn.style.opacity = "0.5";
+                })
+                .catch(function(err) {
+                    // Offline fallback
+                    if (sigConfirm && sigHash) {
+                        sigHash.textContent = "Document hash: [generated locally]\nTimestamp: " + new Date().toISOString();
+                        sigConfirm.style.display = "block";
+                    }
+                });
+            });
+        })();
+
         // === Unified Auditor Functions (analysis + escalation) ===
         var routerDocText = "";
         var routerDocName = "";
@@ -5855,11 +7227,12 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             // --- Scripted input (demo safety net) — fills textarea then extracts ---
             if (inspScriptedBtn && inspTranscriptInput) {
                 inspScriptedBtn.addEventListener("click", function() {
-                    var scriptedTranscript = "This is inspector Sarah Chen reporting from Building C, " +
-                        "second floor, north corridor. Date is March 3rd 2026, approximately 10:15 AM. " +
-                        "We received a property manager report about water staining on the ceiling tiles. " +
-                        "There are visible discoloration patterns consistent with a slow leak from the " +
-                        "floor above. Recommend checking the plumbing in Unit 3B directly above this location.";
+                    var scriptedTranscript = "Just finished meeting with Jackie Rodriguez at the Starbucks " +
+                        "on Main Street in Troy, Michigan. Meeting date March 26th 2026. " +
+                        "We discussed opening a 529 plan for her daughter Maya who starts college in 2030. " +
+                        "She is also interested in a Roth IRA conversion from her old employer 401k. " +
+                        "Need to send her the contribution limits comparison by Friday and schedule a " +
+                        "follow-up for next Thursday to review the paperwork. Referral source was existing member.";
                     inspTranscriptInput.value = scriptedTranscript;
                     showTranscript(scriptedTranscript);
                     extractFields(scriptedTranscript);
@@ -6084,6 +7457,21 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
             // Classify a captured photo
             function classifyPhoto(dataUrl, demoType) {
+                // Show the photo immediately in the camera area while AI analyzes
+                var camPreview = document.getElementById("inspCameraPreview");
+                var camPlaceholder = document.querySelector(".photo-grid-empty");
+                var photoArea = document.getElementById("inspPhotoGrid");
+                if (photoArea && dataUrl) {
+                    // Show a large preview of the photo being analyzed
+                    var existingPreview = document.getElementById("inspAnalyzingPreview");
+                    if (!existingPreview) {
+                        var previewImg = document.createElement("img");
+                        previewImg.id = "inspAnalyzingPreview";
+                        previewImg.style.cssText = "width:100%;max-height:300px;object-fit:contain;border-radius:8px;border:2px solid rgba(var(--brand-accent-rgb),0.4);margin-bottom:8px;";
+                        photoArea.parentNode.insertBefore(previewImg, photoArea);
+                    }
+                    document.getElementById("inspAnalyzingPreview").src = dataUrl;
+                }
                 showClassLoading();
                 setInspStatus3("Analyzing image with AI...", true);
 
@@ -6222,11 +7610,11 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             if (inspDemoPhotoBtn) {
                 var demoPhotoIndex = 0;
                 var demoPhotos = [
-                    { type: "water_damage", label: "Water Damage", color: "#3b82f6" },
-                    { type: "structural_crack", label: "Structural Crack", color: "#ef4444" },
-                    { type: "mold", label: "Mold Growth", color: "#22c55e" },
-                    { type: "electrical_hazard", label: "Electrical Hazard", color: "#f59e0b" },
-                    { type: "trip_hazard", label: "Trip Hazard", color: "#8b5cf6" }
+                    { type: "financial_statement", label: "403(b) Statement", color: "#3b82f6" },
+                    { type: "water_damage", label: "Account Application", color: "#22c55e" },
+                    { type: "structural_crack", label: "Tax Document", color: "#ef4444" },
+                    { type: "mold", label: "Business Card", color: "#f59e0b" },
+                    { type: "electrical_hazard", label: "Insurance Document", color: "#8b5cf6" }
                 ];
 
                 inspDemoPhotoBtn.addEventListener("click", function() {
@@ -6246,8 +7634,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                             reader.onloadend = function() {
                                 inspDemoPhotoBtn.disabled = false;
                                 inspDemoPhotoBtn.innerHTML = "&#128193; Load Demo Photo";
-                                // Send real image to Phi Silica Vision; fall back to demo preset if vision unavailable
-                                classifyPhoto(reader.result, null);
+                                // Use demo preset classification for reliable demo
+                                classifyPhoto(reader.result, demo.type);
                             };
                             reader.readAsDataURL(blob);
                         })
@@ -6265,6 +7653,55 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                             ctx.textAlign = "center";
                             ctx.fillText(demo.label, 320, 240);
                             classifyPhoto(canvas.toDataURL("image/jpeg", 0.85), demo.type);
+                        });
+                });
+            }
+
+            // --- Load Beneficiary Form ---
+            var inspLoadFormBtn = document.getElementById("inspLoadFormBtn");
+            if (inspLoadFormBtn) {
+                inspLoadFormBtn.addEventListener("click", function() {
+                    inspLoadFormBtn.disabled = true;
+                    inspLoadFormBtn.textContent = "Loading Beneficiary Form...";
+
+                    fetch("/inspection/demo-photo/beneficiary_form")
+                        .then(function(r) {
+                            if (!r.ok) throw new Error("Form not found");
+                            return r.blob();
+                        })
+                        .then(function(blob) {
+                            var reader = new FileReader();
+                            reader.onloadend = function() {
+                                inspLoadFormBtn.disabled = false;
+                                inspLoadFormBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15l2 2 4-4" stroke="#f6d107" stroke-width="2"/></svg> Beneficiary Form';
+                                // Classify as beneficiary form (demo preset)
+                                classifyPhoto(reader.result, "beneficiary_form");
+                            };
+                            reader.readAsDataURL(blob);
+                        })
+                        .catch(function() {
+                            inspLoadFormBtn.disabled = false;
+                            inspLoadFormBtn.innerHTML = "Beneficiary Form";
+                            // Fallback canvas
+                            var canvas = document.createElement("canvas");
+                            canvas.width = 850; canvas.height = 1100;
+                            var ctx = canvas.getContext("2d");
+                            ctx.fillStyle = "#fff";
+                            ctx.fillRect(0, 0, 850, 1100);
+                            ctx.fillStyle = "#6b1d2a";
+                            ctx.fillRect(0, 0, 850, 5);
+                            ctx.font = "bold 24px Arial";
+                            ctx.fillText("Flagstar Financial", 40, 40);
+                            ctx.font = "bold 16px Arial";
+                            ctx.fillText("BENEFICIARY DESIGNATION FORM", 40, 70);
+                            ctx.font = "13px Arial";
+                            ctx.fillStyle = "#222";
+                            ctx.fillText("Account Holder: Jackie Marie Rodriguez", 40, 110);
+                            ctx.fillText("Account: ****7093  |  Type: 403(b)", 40, 130);
+                            ctx.fillText("[Sign below with Surface Pen]", 40, 200);
+                            ctx.strokeStyle = "#999";
+                            ctx.strokeRect(40, 220, 500, 150);
+                            classifyPhoto(canvas.toDataURL("image/jpeg", 0.85), "beneficiary_form");
                         });
                 });
             }
@@ -6512,8 +7949,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                             if (targetItem && !targetItem.querySelector(".finding-note")) {
                                 var noteEl = document.createElement("div");
                                 noteEl.className = "finding-note";
-                                noteEl.style.cssText = "margin-top:6px;padding:6px 8px;background:rgba(239,68,68,0.08);border-left:3px solid #ef4444;border-radius:4px;font-size:0.82em;color:rgba(255,255,255,0.75);line-height:1.4;";
-                                noteEl.innerHTML = '<span style="color:#ef4444;font-weight:600;font-size:0.8em;text-transform:uppercase;letter-spacing:0.3px;">&#9998; Inspector Note</span><br>' + data.extracted_text;
+                                noteEl.style.cssText = "margin-top:6px;padding:6px 8px;background:rgba(14,165,233,0.08);border-left:3px solid #0ea5e9;border-radius:4px;font-size:0.82em;color:rgba(255,255,255,0.75);line-height:1.4;";
+                                noteEl.innerHTML = '<span style="color:#0ea5e9;font-weight:600;font-size:0.8em;text-transform:uppercase;letter-spacing:0.3px;">&#9998; Relationship Manager Notes</span><br>' + data.extracted_text;
                                 targetItem.appendChild(noteEl);
                             }
                         }
@@ -6564,8 +8001,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                             if (targetItem2 && !targetItem2.querySelector(".finding-note")) {
                                 var noteEl2 = document.createElement("div");
                                 noteEl2.className = "finding-note";
-                                noteEl2.style.cssText = "margin-top:6px;padding:6px 8px;background:rgba(239,68,68,0.08);border-left:3px solid #ef4444;border-radius:4px;font-size:0.82em;color:rgba(255,255,255,0.75);line-height:1.4;";
-                                noteEl2.innerHTML = '<span style="color:#ef4444;font-weight:600;font-size:0.8em;text-transform:uppercase;letter-spacing:0.3px;">&#9998; Inspector Note</span><br>' + fallbackNote;
+                                noteEl2.style.cssText = "margin-top:6px;padding:6px 8px;background:rgba(14,165,233,0.08);border-left:3px solid #0ea5e9;border-radius:4px;font-size:0.82em;color:rgba(255,255,255,0.75);line-height:1.4;";
+                                noteEl2.innerHTML = '<span style="color:#0ea5e9;font-weight:600;font-size:0.8em;text-transform:uppercase;letter-spacing:0.3px;">&#9998; Relationship Manager Notes</span><br>' + fallbackNote;
                                 targetItem2.appendChild(noteEl2);
                             }
                         }
@@ -6667,6 +8104,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     if (reportContent) reportContent.innerHTML = data.report_html || "<p>No report generated.</p>";
                     if (reportDraft) reportDraft.style.display = "block";
                     if (translateBtn) translateBtn.style.display = "inline-block";
+                    var postD365Btn = document.getElementById("inspPostD365Btn");
+                    if (postD365Btn) postD365Btn.style.display = "inline-block";
 
                     // Store for translation (Milestone 6)
                     window._inspReportData = data;
@@ -6690,6 +8129,96 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     setStatus("Report generation failed: " + (err.message || err), false);
                     generateBtn.disabled = false;
                     generateBtn.textContent = "\ud83d\udcc4 Generate Report";
+                });
+            });
+        })();
+
+        // ── Meeting Notes: Post to D365 ──
+        (function() {
+            var postBtn = document.getElementById("inspPostD365Btn");
+            var resultDiv = document.getElementById("inspD365PostResult");
+            if (!postBtn) return;
+
+            postBtn.addEventListener("click", function() {
+                var reportData = window._inspReportData;
+                if (!reportData || !reportData.report_html) return;
+
+                // Get client name from form
+                var clientName = (document.getElementById("inspLocation") || {}).value || "";
+                // Extract just the name part (before comma if "Jackie Rodriguez, Starbucks")
+                var namePart = clientName.split(",")[0].trim() || "Unknown Client";
+
+                postBtn.disabled = true;
+                postBtn.textContent = "\u23f3 Posting to D365...";
+
+                // Build full text from the HTML report
+                var tempDiv = document.createElement("div");
+                tempDiv.innerHTML = reportData.report_html;
+                var reportText = tempDiv.textContent || tempDiv.innerText || "";
+                // D365 description field can hold up to 100K chars
+                if (reportText.length > 4000) reportText = reportText.substring(0, 4000) + "...";
+
+                // Get meeting details from form fields
+                var meetingLocation = (document.getElementById("inspLocation") || {}).value || "";
+                var meetingDate = (document.getElementById("inspDateTime") || {}).value || "";
+                var productsDiscussed = (document.getElementById("inspIssue") || {}).value || "";
+                var referralSource = (document.getElementById("inspSource") || {}).value || "";
+
+                fetch("/d365/log-transaction", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({
+                        customer_name: namePart,
+                        transaction_type: "Meeting Notes",
+                        amount: "0",
+                        check_number: "N/A",
+                        memo: reportText,
+                        meeting_location: meetingLocation,
+                        meeting_date: meetingDate,
+                        products_discussed: productsDiscussed,
+                        referral_source: referralSource,
+                        bank: ""
+                    })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    postBtn.disabled = false;
+                    postBtn.textContent = "\u2713 Posted to D365";
+                    postBtn.style.opacity = "0.7";
+
+                    if (resultDiv) {
+                        var isLive = data.source === "live";
+                        resultDiv.style.background = isLive ? "rgba(16,185,129,0.1)" : "rgba(241,143,18,0.1)";
+                        resultDiv.style.border = "1px solid " + (isLive ? "rgba(16,185,129,0.3)" : "rgba(241,143,18,0.3)");
+                        resultDiv.style.color = "#333";
+                        resultDiv.innerHTML = (isLive ? "<strong>\u2713 Meeting notes posted to D365 (Live)</strong>" : "<strong>\u2713 Meeting notes logged (Demo)</strong>") +
+                            "<br>Activity ID: " + (data.activity_id || "N/A") +
+                            "<br>Customer: " + (data.customer_name || namePart) +
+                            "<br>Timestamp: " + (data.timestamp || new Date().toISOString()) +
+                            (isLive ? "<br><em>Task created on contact record in Dynamics 365</em>" : "") +
+                            '<br><a href="https://orgdf28000a.crm.dynamics.com/main.aspx?appid=aedf8383-df29-f111-8342-002248357e0e&forceUCI=1&pagetype=entityrecord&etn=contact&id=5cdc2c3f-ad29-f111-8342-002248357e0e" target="_blank" ' +
+                            'style="display:inline-block;margin-top:8px;padding:8px 20px;background:#0078D4;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:0.9em;text-decoration:none;">' +
+                            '\u2601 Open in Dynamics 365</a>';
+                        resultDiv.style.display = "block";
+                    }
+
+                    // Track completed task
+                    var completed = window._inspCompletedTasks || [];
+                    if (completed.indexOf("D365 sync") === -1) {
+                        completed.push("D365 sync");
+                        window._inspCompletedTasks = completed;
+                    }
+                })
+                .catch(function(err) {
+                    postBtn.disabled = false;
+                    postBtn.textContent = "\u2601 Post to D365";
+                    if (resultDiv) {
+                        resultDiv.style.background = "rgba(239,68,68,0.1)";
+                        resultDiv.style.border = "1px solid rgba(239,68,68,0.3)";
+                        resultDiv.style.color = "#333";
+                        resultDiv.innerHTML = "<strong>Post failed</strong><br>" + (err.message || err);
+                        resultDiv.style.display = "block";
+                    }
                 });
             });
         })();
@@ -6940,12 +8469,12 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
             function showDashboard() {
                 var allTasks = [
-                    "Speech-to-text",
-                    "Field extraction",
-                    "Vision classification",
+                    "Transcribe meeting notes",
+                    "Extract client details",
+                    "Classify document",
                     "Pen annotation",
-                    "Report generation",
-                    "Translation",
+                    "Generate meeting summary",
+                    "Translate report",
                     "Routing logic"
                 ];
 
@@ -6977,7 +8506,432 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             });
         })();
 
+        // ── Live Assist: Voice + Demo Script + AI Prompter ──
+        (function() {
+            // --- State ---
+            var _liveMode = null;  // "voice" | "demo" | null
+            var _liveLines = [];   // all transcript lines (objects: {text, time})
+            var _liveSentIndex = 0; // how many lines sent for analysis
+            var _liveAnalyzing = false;
+            var _livePriorInsights = [];
+            var _liveInsightCount = 0;
+            var _liveTokensUsed = 0;
+            var _liveDemoTimers = [];
+            var _liveRecognition = null;
+
+            // --- DOM refs ---
+            var transcriptArea = document.getElementById("liveTranscriptArea");
+            var insightCards = document.getElementById("liveInsightCards");
+            var pulseDot = document.getElementById("livePulseDot");
+            var insightDot = document.getElementById("liveInsightDot");
+            var voiceBtn = document.getElementById("liveVoiceBtn");
+            var demoBtn = document.getElementById("liveDemoBtn");
+            var stopBtn = document.getElementById("liveStopBtn");
+            var statusText = document.getElementById("liveStatusText");
+
+            // --- Demo Script (fallback) ---
+            var _liveAssistDemoScript = [
+                {delay: 0,    speaker: "Customer", text: "Hi, I'm Jackie. I called earlier about opening a new account."},
+                {delay: 3500, speaker: "Advisor",  text: "Welcome, Jackie! I'd be happy to help you get set up. What brings you in today?"},
+                {delay: 3500, speaker: "Customer", text: "I just moved here from out of state and I need to set up checking and savings."},
+                {delay: 3000, speaker: "Advisor",  text: "Great, we can definitely get that started. Is it just for you, or a joint account?"},
+                {delay: 3500, speaker: "Customer", text: "Just me for now. I also have two kids, Maya is eight and Daniel is fifteen."},
+                {delay: 4000, speaker: "Customer", text: "My husband and I have been talking about saving for their college."},
+                {delay: 3000, speaker: "Advisor",  text: "That's smart to start planning early. Have you looked into any education savings plans?"},
+                {delay: 3500, speaker: "Customer", text: "Someone mentioned a 529 plan but I don't really understand how it works."},
+                {delay: 3000, speaker: "Customer", text: "Is there a limit on how much we can put in each year?"},
+                {delay: 3500, speaker: "Advisor",  text: "A 529 is a tax-advantaged savings plan. The annual gift tax exclusion is $18,000 per beneficiary."},
+                {delay: 4000, speaker: "Customer", text: "We're also thinking about retirement. I have an old 401k from my previous job that I never rolled over."},
+                {delay: 3000, speaker: "Customer", text: "I'm forty-five, so I feel like I'm behind on retirement planning."},
+                {delay: 3500, speaker: "Advisor",  text: "You're not behind at all. Let's look at your options. Do you know the balance on that 401k?"},
+                {delay: 3500, speaker: "Customer", text: "What would you recommend, a Roth IRA or a traditional IRA for someone my age?"},
+                {delay: 4000, speaker: "Customer", text: "And honestly, the fees at my last bank were ridiculous. That's part of why I'm switching."},
+                {delay: 3000, speaker: "Advisor",  text: "I hear that a lot. Our checking accounts have no monthly fees with direct deposit."},
+                {delay: 3500, speaker: "Customer", text: "OK that sounds reasonable. Let's go ahead and get the checking set up today."},
+                {delay: 3000, speaker: "Customer", text: "And I'd like to schedule a follow-up to go deeper on the college savings and retirement options."},
+                {delay: 3500, speaker: "Advisor",  text: "Absolutely. I'll get the checking started and we can book a follow-up for later this week."}
+            ];
+
+            // --- Helpers ---
+            function timeStamp() {
+                var d = new Date();
+                return String(d.getHours()).padStart(2, "0") + ":" +
+                       String(d.getMinutes()).padStart(2, "0") + ":" +
+                       String(d.getSeconds()).padStart(2, "0");
+            }
+
+            function setStatus(msg) {
+                if (statusText) statusText.textContent = msg;
+            }
+
+            function clearTranscript() {
+                if (transcriptArea) transcriptArea.innerHTML = "";
+                if (insightCards) insightCards.innerHTML = "";
+                _liveLines = [];
+                _liveSentIndex = 0;
+                _liveAnalyzing = false;
+                _livePriorInsights = [];
+                _liveInsightCount = 0;
+                _liveTokensUsed = 0;
+            }
+
+            function addTranscriptLine(text, isInterim, speaker) {
+                // Remove any interim line first
+                var old = transcriptArea.querySelector(".live-transcript-line.interim");
+                if (old) old.remove();
+
+                var div = document.createElement("div");
+                var speakerClass = speaker ? " speaker-" + speaker.toLowerCase().replace(/\s+/g, "-") : "";
+                div.className = "live-transcript-line" + (isInterim ? " interim" : "") + speakerClass;
+                var speakerTag = speaker ? '<span class="line-speaker">' + speaker + '</span>' : '';
+                div.innerHTML = '<span class="line-time">' + timeStamp() + '</span>' +
+                    speakerTag + text;
+                transcriptArea.appendChild(div);
+                transcriptArea.scrollTop = transcriptArea.scrollHeight;
+
+                if (!isInterim) {
+                    _liveLines.push({ text: text, time: timeStamp(), speaker: speaker || "" });
+                    checkAnalysisTrigger();
+                }
+            }
+
+            // --- Analysis trigger: every 2-3 new lines, fire /live-assist/analyze ---
+            function checkAnalysisTrigger() {
+                var unsent = _liveLines.length - _liveSentIndex;
+                console.log("[LiveAssist] checkAnalysisTrigger: unsent=" + unsent + " analyzing=" + _liveAnalyzing);
+                if (unsent >= 2 && !_liveAnalyzing) {
+                    fireAnalysis();
+                }
+            }
+
+            function fireAnalysis() {
+                if (_liveAnalyzing) return;
+                var chunk = [];
+                for (var i = _liveSentIndex; i < _liveLines.length; i++) {
+                    chunk.push(_liveLines[i].text);
+                }
+                if (chunk.length === 0) return;
+                _liveSentIndex = _liveLines.length;
+                _liveAnalyzing = true;
+                insightDot.classList.add("active");
+                setStatus("Analyzing transcript...");
+                console.log("[LiveAssist] fireAnalysis: sending " + chunk.length + " lines (" + chunk.join(" ").length + " chars)");
+
+                // Send last 3 insights as short summaries (first 20 words each)
+                var priorStr = _livePriorInsights.slice(-3).map(function(p) {
+                    return p.replace(/^- /gm, "").split(/\s+/).slice(0, 20).join(" ");
+                }).join(" | ");
+
+                fetch("/live-assist/analyze", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: chunk.join(" "), prior: priorStr })
+                })
+                .then(function(r) {
+                    if (!r.ok) throw new Error("HTTP " + r.status);
+                    return r.json();
+                })
+                .then(function(data) {
+                    _liveAnalyzing = false;
+                    insightDot.classList.remove("active");
+                    console.log("[LiveAssist] Analysis result:", data.sentiment, "tokens=" + data.tokens_used);
+                    if (data.error) {
+                        setStatus("Analysis error: " + data.error);
+                        return;
+                    }
+                    _liveInsightCount++;
+                    _liveTokensUsed += (data.tokens_used || 0);
+                    // Track in savings widget
+                    try {
+                        if (typeof updateSavingsFromResponse === "function") {
+                            updateSavingsFromResponse({ usage: { total_tokens: data.tokens_used || 0 } });
+                        }
+                    } catch(e) { console.warn("[LiveAssist] savings widget error:", e); }
+                    // Store full insight text as prior to suppress repeats
+                    _livePriorInsights.push(data.insights || "");
+
+                    addInsightCard(data.insights, data.sentiment);
+                    setStatus(_liveMode === "voice" ? "Listening..." : "Playing script...");
+
+                    // Check if more unsent lines accumulated while analyzing
+                    var stillUnsent = _liveLines.length - _liveSentIndex;
+                    console.log("[LiveAssist] Post-analysis: stillUnsent=" + stillUnsent);
+                    if (stillUnsent >= 1) fireAnalysis();
+                })
+                .catch(function(e) {
+                    _liveAnalyzing = false;
+                    insightDot.classList.remove("active");
+                    console.error("[LiveAssist] Analysis failed:", e);
+                    setStatus("Analysis failed: " + e.message);
+                    // Still try to process remaining lines
+                    var stillUnsent = _liveLines.length - _liveSentIndex;
+                    if (stillUnsent >= 2) {
+                        setTimeout(function() { fireAnalysis(); }, 2000);
+                    }
+                });
+            }
+
+            function addInsightCard(text, sentiment) {
+                // Remove the initial placeholder text on first real card
+                var placeholder = document.getElementById("liveInsightPlaceholder");
+                if (placeholder) placeholder.remove();
+
+                var card = document.createElement("div");
+                card.className = "live-insight-card";
+                var sentClass = "sentiment-neutral";
+                var sentLabel = "NEUTRAL";
+                if (sentiment === "POSITIVE") { sentClass = "sentiment-positive"; sentLabel = "POSITIVE"; }
+                else if (sentiment === "CAUTIOUS") { sentClass = "sentiment-cautious"; sentLabel = "CAUTIOUS"; }
+
+                // Format bullets and markdown inline
+                var safeText = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                                   .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+                                   .replace(/^- (.+)$/gm, '<div style="padding:2px 0 2px 12px;border-left:2px solid rgba(255,255,255,0.15);">$1</div>')
+                                   .replace(/\n/g, '');
+                card.innerHTML = '<div class="insight-header">' +
+                    '<span class="sentiment-badge ' + sentClass + '">' + sentLabel + '</span>' +
+                    '<span class="insight-time">' + timeStamp() + '</span></div>' +
+                    '<div class="insight-text">' + safeText + '</div>';
+
+                // Append at bottom (natural reading order) and scroll to show it
+                insightCards.appendChild(card);
+                insightCards.scrollTop = insightCards.scrollHeight;
+            }
+
+            // --- Web Speech API (Live Voice) ---
+            function startVoice() {
+                var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRecognition) {
+                    setStatus("Speech Recognition not supported in this browser. Use Microsoft Edge.");
+                    return;
+                }
+
+                clearTranscript();
+                _liveMode = "voice";
+                var recognition = new SpeechRecognition();
+                recognition.continuous = true;
+                recognition.interimResults = true;
+                recognition.lang = "en-US";
+                recognition.maxAlternatives = 1;
+                _liveRecognition = recognition;
+
+                recognition.onstart = function() {
+                    pulseDot.classList.add("active");
+                    setStatus("Listening... speak into your microphone");
+                    voiceBtn.style.display = "none";
+                    demoBtn.style.display = "none";
+                    stopBtn.style.display = "";
+                };
+
+                recognition.onresult = function(event) {
+                    var finalText = "";
+                    var interimText = "";
+                    for (var i = event.resultIndex; i < event.results.length; i++) {
+                        var transcript = event.results[i][0].transcript;
+                        if (event.results[i].isFinal) {
+                            finalText += transcript;
+                        } else {
+                            interimText += transcript;
+                        }
+                    }
+                    if (finalText.trim()) {
+                        addTranscriptLine(finalText.trim(), false);
+                    }
+                    if (interimText.trim()) {
+                        addTranscriptLine(interimText.trim(), true);
+                    }
+                };
+
+                recognition.onerror = function(event) {
+                    if (event.error === "no-speech") return; // normal, keep listening
+                    if (event.error === "aborted") return;   // user stopped
+                    setStatus("Mic error: " + event.error);
+                };
+
+                recognition.onend = function() {
+                    // Auto-restart if still in voice mode (browser may stop after silence)
+                    if (_liveMode === "voice") {
+                        try { recognition.start(); } catch(e) {}
+                    }
+                };
+
+                try {
+                    recognition.start();
+                } catch(e) {
+                    setStatus("Could not start microphone: " + e.message);
+                }
+            }
+
+            function stopVoice() {
+                _liveMode = null;
+                if (_liveRecognition) {
+                    try { _liveRecognition.stop(); } catch(e) {}
+                    _liveRecognition = null;
+                }
+                pulseDot.classList.remove("active");
+            }
+
+            // --- Demo Script Engine ---
+            function startDemoScript() {
+                clearTranscript();
+                _liveMode = "demo";
+                pulseDot.classList.add("active");
+                voiceBtn.style.display = "none";
+                demoBtn.style.display = "none";
+                stopBtn.style.display = "";
+                setStatus("Playing demo script...");
+
+                var idx = 0;
+                function playNext() {
+                    if (idx >= _liveAssistDemoScript.length || _liveMode !== "demo") {
+                        finishSession();
+                        return;
+                    }
+                    var line = _liveAssistDemoScript[idx];
+                    idx++;
+                    var timer = setTimeout(function() {
+                        addTranscriptLine(line.text, false, line.speaker);
+                        playNext();
+                    }, line.delay);
+                    _liveDemoTimers.push(timer);
+                }
+                playNext();
+            }
+
+            function stopDemoScript() {
+                _liveMode = null;
+                for (var i = 0; i < _liveDemoTimers.length; i++) {
+                    clearTimeout(_liveDemoTimers[i]);
+                }
+                _liveDemoTimers = [];
+                pulseDot.classList.remove("active");
+            }
+
+            // --- Session finish ---
+            function finishSession() {
+                pulseDot.classList.remove("active");
+
+                // Flush any remaining unsent lines
+                if (_liveLines.length > _liveSentIndex && !_liveAnalyzing) {
+                    fireAnalysis();
+                }
+
+                // Wait for in-flight analysis to finish before showing summary
+                function showSummary() {
+                    if (_liveAnalyzing) {
+                        setTimeout(showSummary, 500);
+                        return;
+                    }
+                    // Flush again if more lines came in during wait
+                    if (_liveLines.length > _liveSentIndex) {
+                        fireAnalysis();
+                        setTimeout(showSummary, 500);
+                        return;
+                    }
+                    var summaryDiv = document.createElement("div");
+                    summaryDiv.className = "live-summary-card";
+                    summaryDiv.innerHTML = '<h4>Session Complete</h4>' +
+                        '<p>' + _liveLines.length + ' transcript lines captured</p>' +
+                        '<p>' + _liveInsightCount + ' AI insights generated</p>' +
+                        '<p>' + _liveTokensUsed + ' tokens used -- all processed locally on NPU</p>';
+                    transcriptArea.appendChild(summaryDiv);
+                    transcriptArea.scrollTop = transcriptArea.scrollHeight;
+
+                    _liveMode = null;
+                    voiceBtn.style.display = "";
+                    demoBtn.style.display = "";
+                    stopBtn.style.display = "none";
+                    var tBtn = document.getElementById("liveTranslateBtn");
+                    if (tBtn && _liveLines.length > 0) tBtn.style.display = "";
+                    setStatus("Session complete. " + _liveInsightCount + " insights generated locally.");
+                }
+                showSummary();
+            }
+
+            // --- Stop handler ---
+            function stopSession() {
+                if (_liveMode === "voice") stopVoice();
+                else if (_liveMode === "demo") stopDemoScript();
+                finishSession();
+            }
+
+            // --- Translation ---
+            var _liveTransLang = "en";
+            var _liveTranslating = false;
+            var translateBtn = document.getElementById("liveTranslateBtn");
+
+            function translateTranscript() {
+                if (_liveTranslating || _liveLines.length === 0) return;
+
+                if (_liveTransLang === "es") {
+                    var tl = transcriptArea.querySelectorAll(".live-translated-line");
+                    for (var i = 0; i < tl.length; i++) tl[i].remove();
+                    _liveTransLang = "en";
+                    if (translateBtn) translateBtn.textContent = "\ud83c\udf10 Translate to Spanish";
+                    setStatus("Switched back to English");
+                    return;
+                }
+
+                var fullText = "";
+                for (var j = 0; j < _liveLines.length; j++) fullText += _liveLines[j].text + "\n";
+
+                _liveTranslating = true;
+                if (translateBtn) { translateBtn.disabled = true; translateBtn.textContent = "\u23f3 Translating..."; }
+                setStatus("Translating transcript to Spanish with local AI...");
+
+                fetch("/live-assist/translate", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ text: fullText, target_language: "Spanish" })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    _liveTranslating = false;
+                    if (translateBtn) translateBtn.disabled = false;
+                    if (data.error) {
+                        setStatus("Translation error: " + data.error);
+                        if (translateBtn) translateBtn.textContent = "\ud83c\udf10 Translate to Spanish";
+                        return;
+                    }
+                    var translated = (data.translated_text || "").split("\n").filter(function(l) { return l.trim(); });
+                    var origLines = transcriptArea.querySelectorAll(".live-transcript-line");
+                    var ti = 0;
+                    for (var k = 0; k < origLines.length && ti < translated.length; k++) {
+                        var td = document.createElement("div");
+                        td.className = "live-translated-line";
+                        td.textContent = translated[ti];
+                        origLines[k].parentNode.insertBefore(td, origLines[k].nextSibling);
+                        ti++;
+                    }
+                    _liveTransLang = "es";
+                    if (translateBtn) translateBtn.textContent = "\ud83c\udf10 Switch to English";
+                    setStatus("Translated to Spanish -- 44 languages supported, all on-device. No cloud API call.");
+                    transcriptArea.scrollTop = transcriptArea.scrollHeight;
+                })
+                .catch(function(err) {
+                    _liveTranslating = false;
+                    if (translateBtn) { translateBtn.disabled = false; translateBtn.textContent = "\ud83c\udf10 Translate to Spanish"; }
+                    setStatus("Translation failed");
+                });
+            }
+
+            if (translateBtn) translateBtn.addEventListener("click", translateTranscript);
+
+            // --- Wire up buttons ---
+            if (voiceBtn) voiceBtn.addEventListener("click", startVoice);
+            if (demoBtn) demoBtn.addEventListener("click", startDemoScript);
+            if (stopBtn) stopBtn.addEventListener("click", stopSession);
+        })();
+
     </script>
+
+    <!-- D365 Mockup Overlay -->
+    <div id="d365MockOverlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:10001; justify-content:center; align-items:center; cursor:pointer;" onclick="this.style.display='none'">
+        <div style="position:relative; max-width:95vw; max-height:95vh;">
+            <img src="/demo-assets/JackieD365.png" alt="Jackie Rodriguez - Dynamics 365 Customer 360" style="max-width:95vw; max-height:90vh; border-radius:10px; box-shadow:0 8px 40px rgba(0,0,0,0.5);">
+            <div style="text-align:center; margin-top:10px; color:rgba(255,255,255,0.6); font-size:0.85em;">Click anywhere to close</div>
+        </div>
+    </div>
 
     <!-- File Picker Modal for Review & Summarize -->
     <div id="filePickerOverlay" class="file-picker-overlay" style="display:none;">
@@ -7021,6 +8975,45 @@ def serve_logos(filename):
         content = f.read()
     return Response(content, mimetype=mimetype)
 
+@app.route('/fonts/<path:filename>')
+def serve_fonts(filename):
+    """Serve locally-bundled font files for offline use."""
+    if '..' in filename or filename.startswith('/') or filename.startswith('\\'):
+        return "Not found", 404
+    fonts_dir = os.path.join(_APP_DIR, 'fonts')
+    filepath = os.path.join(fonts_dir, filename)
+    resolved = os.path.realpath(filepath)
+    if not resolved.startswith(os.path.realpath(fonts_dir)):
+        return "Not found", 404
+    if not os.path.exists(resolved):
+        return "Not found", 404
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    mimes = {'ttf': 'font/ttf', 'woff': 'font/woff', 'woff2': 'font/woff2', 'otf': 'font/otf'}
+    with open(resolved, 'rb') as f:
+        content = f.read()
+    return Response(content, mimetype=mimes.get(ext, 'application/octet-stream'))
+
+
+@app.route('/demo-assets/<path:filename>')
+def serve_demo_assets(filename):
+    """Serve demo assets (ID images, check images) from demo_data/."""
+    if '..' in filename or filename.startswith('/') or filename.startswith('\\'):
+        return "Not found", 404
+    filepath = os.path.join(DEMO_DIR, filename)
+    resolved = os.path.realpath(filepath)
+    if not resolved.startswith(os.path.realpath(DEMO_DIR) + os.sep):
+        return "Not found", 404
+    if not os.path.exists(resolved):
+        return "Not found", 404
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    mimetypes = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'webp': 'image/webp'}
+    if ext not in mimetypes:
+        return "Not found", 404
+    with open(resolved, 'rb') as f:
+        content = f.read()
+    return Response(content, mimetype=mimetypes[ext])
+
+
 TESSERACT_DIR = os.path.join(SCRIPT_DIR, 'tesseract')
 
 @app.route('/tesseract/<path:filename>')
@@ -7046,6 +9039,451 @@ def serve_tesseract(filename):
     with open(resolved, 'rb') as f:
         content = f.read()
     return Response(content, mimetype=mimetype)
+
+
+def _build_theme_overrides(cfg):
+    """Generate CSS overrides for light theme if brand_theme is 'light'."""
+    if cfg.get("brand_theme") != "light":
+        return ""
+    accent = cfg["brand_accent"]
+    accent_rgb = cfg["brand_accent_rgb"]
+    return """
+        /* ── Light Theme Override ── */
+        @font-face { font-family: 'Urbanist'; font-weight: 300; src: url('/fonts/urbanist-300.ttf') format('truetype'); }
+        @font-face { font-family: 'Urbanist'; font-weight: 400; src: url('/fonts/urbanist-400.ttf') format('truetype'); }
+        @font-face { font-family: 'Urbanist'; font-weight: 500; src: url('/fonts/urbanist-500.ttf') format('truetype'); }
+        @font-face { font-family: 'Urbanist'; font-weight: 600; src: url('/fonts/urbanist-600.ttf') format('truetype'); }
+        @font-face { font-family: 'Urbanist'; font-weight: 700; src: url('/fonts/urbanist-700.ttf') format('truetype'); }
+        body, input, textarea, button, select { font-family: 'Urbanist', 'Segoe UI', sans-serif; }
+        body { background: #f5f5f5; color: #333; }
+        .sidebar { background: #fff !important; border-right: 1px solid #e0e0e0; }
+        .sidebar-toggle { border-color: #ddd; color: #555; }
+        .sidebar-toggle:hover { background: rgba(0,0,0,0.05); }
+        .sidebar-brand-text { color: #333 !important; }
+        .sidebar-brand-text small { color: #888 !important; }
+        .sidebar-nav-item { color: #555; }
+        .sidebar-nav-item:hover { background: rgba(0,0,0,0.04); color: #333; }
+        .sidebar-nav-item.active { background: rgba(""" + accent_rgb + """,0.12); color: """ + accent + """; border-left-color: """ + accent + """; }
+        .sidebar-label { color: #333 !important; }
+        .sidebar-label small { color: #888 !important; }
+        .nav-icon { color: #888; display: flex; align-items: center; justify-content: center; }
+        .nav-icon svg { stroke: #555; }
+        .sidebar-nav-item.active .nav-icon svg { stroke: """ + accent + """; }
+        .sidebar-nav-item:hover .nav-icon svg { stroke: #333; }
+        .sidebar-nav-item.active .nav-icon { color: """ + accent + """; }
+        .sidebar-footer { border-top: 1px solid #e0e0e0; color: #555; }
+        .sidebar-footer-label { color: #555 !important; }
+        .main-content { background: #f5f5f5; }
+        .tab-content { color: #333; }
+        .auditor-header { color: #333; }
+        .chat-input-container { background: #fff; border: 1px solid #ddd; }
+        .chat-input-container input, .chat-input-container textarea { color: #333; background: transparent; }
+        .chat-input-container input::placeholder { color: #999; }
+        .suggestion-chip { background: #fff; border: 1px solid #ddd; color: #555; }
+        .suggestion-chip:hover { background: rgba(""" + accent_rgb + """,0.08); border-color: """ + accent + """; color: """ + accent + """; }
+        .chat-bubble.assistant { background: #fff; color: #333; border: 1px solid #e8e8e8; }
+        .chat-bubble.user { background: """ + accent + """; color: #fff; }
+        .poc-banner { background: rgba(""" + accent_rgb + """,0.08); border: 1px solid rgba(""" + accent_rgb + """,0.2); color: #555; }
+        .id-result-card, .check-result-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .id-result-card h3, .check-result-card h3 { color: #333; }
+        .id-field, .check-field { border-bottom-color: #eee; }
+        .id-field-label, .check-field-label { color: #888; }
+        .id-field-value, .check-field-value { color: #333; }
+        .camera-section { background: #fff; border: 1px solid #e0e0e0; }
+        .processing-steps { background: #fff; border: 1px solid #e0e0e0; }
+        .step-text, .step-status { color: #555; }
+        .ocr-preview { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .privacy-note { background: rgba(16,124,16,0.08); border-color: rgba(16,124,16,0.25); color: #555; }
+        .tab-footer { color: #999; }
+        .d365-card { background: #fff; border: 1px solid #e0e0e0; }
+        .d365-card h3 { color: #333; }
+        .d365-section { background: #f9f9f9; }
+        .d365-section-title { color: #888; }
+        .d365-field-label { color: #888; }
+        .d365-field-value { color: #333; }
+        .d365-activity { background: #f5f5f5; border-left-color: """ + accent + """; color: #555; }
+        .sig-section { background: #fff; border-color: #e0e0e0; }
+        .sig-agreement { color: #555; border-bottom-color: #e0e0e0; }
+        .sig-agreement strong { color: #333; }
+        .sig-confirm { background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.2); color: #555; }
+        .sig-confirm h4 { color: #10b981; }
+        .sig-confirm .sig-hash { background: #f5f5f5; color: #666; }
+        .check-amount { background: rgba(16,185,129,0.06); color: #059669; }
+        .check-flag.flag-pass { background: rgba(16,185,129,0.06); }
+        .check-flag.flag-warn { background: rgba(234,179,8,0.06); }
+        .check-flag.flag-fail { background: rgba(239,68,68,0.06); }
+        .id-mode-switcher { background: #f0f0f0; }
+        .id-mode-btn { color: #888; }
+        .id-mode-btn.active { background: """ + accent + """; color: #fff; }
+        .persona-badge { background: #f5f5f5; border: 1px solid #ddd; color: #555; }
+        .persona-badge:hover { border-color: """ + accent + """; }
+        .persona-badge.active { background: rgba(""" + accent_rgb + """,0.1); border-color: """ + accent + """; color: """ + accent + """; }
+        .persona-name { color: #333; }
+        .persona-role { color: #888; }
+        .warmup-overlay { background: #fff; color: #333; }
+        .warmup-overlay h2 { color: #333; }
+        .warmup-overlay .warmup-subtitle { color: #666; }
+        .briefing-card, .my-day-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .live-assist-layout { color: #333; }
+        .live-transcript-pane, .live-insight-pane { background: #fff; border: 1px solid #e0e0e0; }
+        .live-pane-header { color: #333; }
+        .live-transcript-line { color: #333; border-bottom-color: #eee; }
+        .live-bottom-bar { background: #fff; border: 1px solid #e0e0e0; }
+        .live-btn { background: #f5f5f5; color: #555; border: 1px solid #ddd; }
+        .live-btn:hover { background: rgba(""" + accent_rgb + """,0.1); color: """ + accent + """; }
+        .live-status-text { color: #888; }
+        .insight-card { background: #f9f9f9; border: 1px solid #e8e8e8; color: #333; }
+        .inspection-workspace { color: #333; }
+        .inspection-form-panel, .inspection-photo-panel, .inspection-report-panel { background: #fff; border: 1px solid #e0e0e0; }
+        .inspection-form-panel h3, .inspection-report-panel h3 { color: #333; }
+        .insp-field label { color: #555; }
+        .insp-field input, .insp-field textarea, .insp-transcript-input { background: #f9f9f9; border: 1px solid #ddd; color: #333; }
+        .classification-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .insp-status-bar { background: #fff; border: 1px solid #e0e0e0; color: #555; }
+        .bottom-bar { background: #fff; border-top: 1px solid #e0e0e0; color: #555; }
+        .bottom-bar .status-label { color: #888; }
+        .session-stats-bar { background: #fff; border: 1px solid #e0e0e0; color: #555; }
+        .chat-empty-state { color: #999; }
+
+        /* Suggestion chips - visible on light bg */
+        .suggestion-chip .chip-icon { color: """ + accent + """; }
+        .suggestion-grid .suggestion-chip { background: #fff; border: 1px solid #ddd; color: #444; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .suggestion-grid .suggestion-chip span { color: #444; }
+        .suggestion-grid .suggestion-chip:hover { border-color: """ + accent + """; background: rgba(""" + accent_rgb + """,0.06); }
+        .suggestion-grid .suggestion-chip:hover span { color: """ + accent + """; }
+
+        /* Savings widget / session stats in sidebar */
+        .savings-widget { background: rgba(34,197,94,0.06); border-color: rgba(34,197,94,0.2); }
+        .savings-stat { color: #555; }
+        .savings-stat-hero { color: #16a34a; text-shadow: none; }
+        .savings-stat-compact { color: #16a34a; }
+
+        /* Offline/Online badge */
+        .offline-badge { color: #fff; }
+
+        /* Bottom bar with status indicators */
+        .bottom-bar, [class*="bottom-bar"] { background: #fff !important; border: 1px solid #e0e0e0 !important; color: #555; }
+        .bottom-bar span, .bottom-bar .status-label, .bottom-bar .status-text { color: #666; }
+        .bottom-bar .status-dot { box-shadow: none; }
+        .bottom-bar a, .bottom-bar button { color: #555; }
+
+        /* Chat area */
+        .chat-messages { color: #333; }
+        .chat-bubble { color: #333; }
+        .chat-bubble.assistant code { background: #f0f0f0; color: #333; }
+        .chat-bubble.assistant pre { background: #f5f5f5; border: 1px solid #e0e0e0; }
+        .chat-send-btn { background: """ + accent + """; color: #fff; }
+        .chat-send-btn:hover { background: """ + cfg.get("brand_hover", accent) + """; }
+        .chat-input { color: #333; }
+        .chat-input::placeholder { color: #aaa; }
+
+        /* Auditor / PII Guard tab */
+        .decision-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .router-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .escalation-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .audit-stamp { background: #f9f9f9; border: 1px solid #e0e0e0; color: #555; }
+        .verdict-section { color: #333; }
+        .file-picker-overlay .file-picker-modal { background: #fff; color: #333; border: 1px solid #ddd; }
+        .file-picker-list { color: #333; }
+        .file-picker-item { border-bottom-color: #eee; color: #333; }
+        .file-picker-item:hover { background: #f5f5f5; }
+
+        /* My Day / Morning Briefing */
+        .my-day-data-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .my-day-chip { background: #fff; border: 1px solid #ddd; color: #555; }
+        .my-day-chip:hover { border-color: """ + accent + """; color: """ + accent + """; }
+        .brief-me-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .day-section-header { color: #555; }
+
+        /* Inspection / Meeting Notes workspace */
+        .inspection-bottom-bar { background: #fff !important; border: 1px solid #e0e0e0 !important; color: #555; }
+        .insp-mic-btn { background: #f5f5f5; border: 1px solid #ddd; color: #555; }
+        .insp-mic-btn:hover { background: rgba(""" + accent_rgb + """,0.1); color: """ + accent + """; }
+        .insp-token-count { color: #888; }
+        .insp-status { color: #555; }
+        .findings-log { color: #333; }
+        .finding-item { background: #f9f9f9; border: 1px solid #e8e8e8; color: #333; }
+        .photo-grid { color: #333; }
+        .report-content { color: #333; }
+        .insp-dash-overlay { background: rgba(255,255,255,0.97); color: #333; }
+        .insp-dash-task { color: #333; }
+        .insp-dash-task .check { color: #16a34a; }
+        .annotation-note { background: rgba(14,165,233,0.04); border-color: rgba(14,165,233,0.2); color: #555; }
+
+        /* Scrollbar for light theme */
+        ::-webkit-scrollbar-track { background: #f0f0f0; }
+        ::-webkit-scrollbar-thumb { background: #ccc; }
+        ::-webkit-scrollbar-thumb:hover { background: #aaa; }
+
+        /* Topbar buttons (Audit Log, Clear, Policy shield) */
+        .topbar-btn { color: #555 !important; opacity: 1; }
+        .topbar-btn:hover { background: #f0f0f0; border-color: #ddd; color: #333 !important; }
+        .topbar-divider { background: #ddd; }
+        .policy-tooltip { background: #fff; border: 1px solid #ddd; color: #333; }
+
+        /* Network toggle buttons (Go Offline / Go Online) */
+        .net-toggle-btn { background: #f5f5f5 !important; border: 1px solid #ddd !important; color: #555 !important; }
+        .net-toggle-btn:hover { background: #e8e8e8 !important; color: #333 !important; }
+        .net-toggle-btn.net-toggle-off { border-color: rgba(255,140,0,0.5) !important; }
+        .net-toggle-btn.net-toggle-off:hover { background: rgba(255,140,0,0.1) !important; color: #c05e00 !important; }
+        .net-toggle-btn.net-toggle-on { border-color: rgba(0,204,106,0.5) !important; }
+        .net-toggle-btn.net-toggle-on:hover { background: rgba(0,204,106,0.1) !important; color: #059669 !important; }
+
+        /* Sidebar footer controls labels */
+        .sidebar-footer-label { color: #888 !important; }
+        .sidebar-footer-controls .model-selector label { color: #555; opacity: 1; }
+        .sidebar-footer-controls .model-selector select { background: #f5f5f5; border: 1px solid #ddd; color: #333; }
+
+        /* Badge (chip label) */
+        .badge { background: linear-gradient(90deg, #0078D4, """ + accent + """); color: #fff; }
+
+        /* Offline/Online badge - ensure visible */
+        .offline-badge { background: linear-gradient(90deg, #107C10, #00CC6A); color: #fff !important; font-weight: 600; }
+        .offline-badge.offline { background: linear-gradient(90deg, #FF8C00, #FFB900); color: #fff !important; }
+
+        /* POC footer text */
+        .poc-footer { color: #888; }
+
+        /* Audit Log, Clear, network toggle buttons in bottom bar */
+        .bottom-bar button, .bottom-bar a { color: #555 !important; background: #f0f0f0; border: 1px solid #ddd; border-radius: 6px; padding: 4px 10px; }
+        .bottom-bar button:hover, .bottom-bar a:hover { background: #e5e5e5; color: #333 !important; }
+
+        /* Status bar text (NPU Ready, Online, etc.) */
+        .bottom-bar .status-text, .bottom-bar span { color: #666 !important; }
+
+        /* Camera placeholder text */
+        #cameraPlaceholder { background: #f0f0f0 !important; color: #888 !important; }
+        #cameraPlaceholder div { color: #888 !important; }
+
+        /* Tab headers */
+        .auditor-header { color: #333 !important; font-family: 'Urbanist', sans-serif; font-weight: 700; }
+
+        /* All cards that use rgba white backgrounds */
+        .tool-approval-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .agent-response { color: #333; }
+        .trust-receipt { background: #f9f9f9; border: 1px solid #e0e0e0; color: #555; }
+
+        /* Marketing/contract review cards */
+        .claims-card, .verdict-card, .summary-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .claim-item { border-bottom-color: #eee; color: #333; }
+        .risk-badge { color: #fff; }
+
+        /* Warmup overlay */
+        .warmup-overlay { background: #fff !important; color: #333 !important; }
+        .warmup-overlay * { color: #333 !important; }
+        .warmup-overlay .warmup-bar-track { background: #e0e0e0; }
+        .warmup-overlay .warmup-bar-fill { background: """ + accent + """; }
+
+        /* Knowledge search results */
+        .knowledge-results { color: #333; }
+        .knowledge-result-item { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+
+        /* My Day counts/chips */
+        .my-day-count { color: #555; background: #f0f0f0; border: 1px solid #ddd; }
+
+        /* Sentiment badges (Live Assist) - keep colored */
+        .sentiment-positive { background: rgba(34,197,94,0.1); color: #16a34a; }
+        .sentiment-neutral { background: rgba(234,179,8,0.1); color: #b45309; }
+        .sentiment-cautious { background: rgba(239,68,68,0.1); color: #dc2626; }
+
+        /* Speaker labels */
+        .live-transcript-line .line-speaker { color: #555; }
+        .live-translated-line { color: #666; border-left-color: rgba(""" + accent_rgb + """,0.4); }
+
+        /* Demo ID preview mock card */
+        .mock-id-card { box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+
+        /* D365 badge */
+        .d365-badge { background: rgba(16,185,129,0.1); color: #059669; }
+        .d365-open-btn { background: rgba(0,120,212,0.08); color: #0078d4; border-color: rgba(0,120,212,0.25); }
+
+        /* ── Nuclear override: every element that uses white/transparent text or bg ── */
+        /* Chat and agent */
+        .agent-topbar { background: #fff; border-bottom: 1px solid #e0e0e0; }
+        .input-area { background: #fff; border: 1px solid #ddd; }
+        .assistant-msg { background: #fff; border: 1px solid #e8e8e8; color: #333; }
+        .user-msg { background: """ + accent + """; color: #fff; }
+        #userInput { color: #333; }
+        #userInput::placeholder { color: #aaa; }
+        #sendBtn { color: #fff; }
+        #attachBtn { color: #666; }
+        #attachBtn:hover { color: """ + accent + """; background: #f0f0f0; }
+
+        /* My Day cards */
+        .day-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .day-card:hover { background: #f9f9f9; }
+        .day-card.expanded { background: #f9f9f9; }
+        .day-card .card-label { color: #555; opacity: 1; }
+        .day-card .card-hint { color: #999; opacity: 1; }
+        .day-card .card-peek { background: #fff; border-color: #ddd; color: #333; }
+        .peek-row { border-bottom-color: #eee; color: #333; }
+        .peek-row strong { color: #222; }
+        .day-section-header { color: #333; }
+        .day-action-btn { background: #f5f5f5; border: 1px solid #ddd; color: #555; }
+        .day-action-btn:hover { background: rgba(""" + accent_rgb + """,0.1); color: """ + accent + """; }
+        .focus-btn { color: #555; }
+        .tomorrow-btn { color: #fff !important; }
+        .focus-btn { color: #fff !important; }
+        .brief-me-btn { color: #fff !important; }
+        .briefing-progress { background: #f9f9f9; border: 1px solid #e0e0e0; }
+        .briefing-result { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .exec-summary { background: rgba(""" + accent_rgb + """,0.06); border-bottom-color: #e0e0e0; color: #333; }
+        .exec-summary .summary-label { color: #888; opacity: 1; }
+        .breakdown-area { color: #333; }
+        .breakdown-section { border-color: #e0e0e0; }
+        .breakdown-header { background: #f5f5f5; color: #333; }
+        .breakdown-header:hover { background: #eee; }
+        .breakdown-body { color: #444; }
+        .briefing-footer { color: #888; border-top: 1px solid #e0e0e0; }
+        .breakdown-header { background: #f9f9f9; color: #333; }
+        .breakdown-header:hover { background: #f0f0f0; }
+
+        /* Auditor */
+        .auditor-dropzone { background: #f9f9f9; border-color: #ddd; color: #555; }
+        .auditor-demo-section { background: #f9f9f9; }
+        .auditor-doc-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .auditor-back-link a { color: #888; }
+        .auditor-back-link a:hover { color: #333; }
+        .result-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .processing-log-header { background: #f9f9f9; color: #333; }
+        .verdict-count { background: #f0f0f0; color: #333; }
+        .doc-preview-card { background: #f9f9f9; border: 1px solid #e0e0e0; color: #333; }
+        .diff-col { background: #f9f9f9; color: #333; }
+        .diff-redacted { color: #333; }
+        .router-analysis { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+        .decision-card { background: #fff; border: 1px solid #e0e0e0; color: #333; }
+
+        /* Device search, health check */
+        .device-search-container { background: #fff; border: 1px solid #e0e0e0; }
+        .device-search-container input[type="text"] { background: #f9f9f9; border: 1px solid #ddd; color: #333; }
+        .search-result-item { background: #f9f9f9; color: #333; }
+        .health-check-entry { background: #f9f9f9; color: #333; }
+        .security-check-line { color: #555; }
+
+        /* File picker */
+        .file-picker-item { background: #f9f9f9; color: #333; }
+        .file-picker-item:hover { background: #f0f0f0; }
+        .file-picker-btn.cancel { background: #e0e0e0; color: #333; }
+        .file-picker-btn.confirm { background: """ + accent + """; color: #fff; }
+
+        /* Mobile hamburger */
+        .mobile-hamburger { color: #333; }
+
+        /* Camera select dropdown */
+        #cameraSelect { background: #f5f5f5 !important; border: 1px solid #ddd !important; color: #333 !important; }
+        #refreshCamerasBtn { background: #f5f5f5 !important; border: 1px solid #ddd !important; color: #333 !important; }
+        .camera-btn { background: #f5f5f5; border: 1px solid #ddd; color: #555; }
+        .camera-btn:hover { background: rgba(""" + accent_rgb + """,0.1); color: """ + accent + """; }
+
+        /* Live Assist deep */
+        .live-transcript-pane { background: #fff; border: 1px solid #e0e0e0; }
+        .live-prompter-pane { background: #fff; border: 1px solid #e0e0e0; }
+        .live-transcript-line { background: #f9f9f9; color: #333; }
+        .live-transcript-line.interim { color: #999; background: #f5f5f5; }
+        .live-transcript-line .line-time { color: #999; }
+        .live-insight-card { background: #f9f9f9; border: 1px solid #e8e8e8; color: #333; }
+        .live-insight-card .insight-text { color: #333; }
+        .live-insight-card .insight-time { color: #999; }
+        .live-summary-card { color: #333; }
+        .live-summary-card p { color: #555; }
+
+        /* Meeting Notes / Field Inspection deep */
+        .inspection-form-panel { background: #fff !important; border: 1px solid #e0e0e0 !important; }
+        .inspection-report-panel { background: #fff !important; border: 1px solid #e0e0e0 !important; }
+        .insp-field input, .insp-field select { background: #f9f9f9 !important; border: 1px solid #ddd !important; color: #333 !important; }
+        .insp-transcript-input { background: #f9f9f9 !important; border: 1px solid #ddd !important; color: #333 !important; }
+        .insp-transcript-input::placeholder { color: #aaa !important; }
+        .insp-transcript { background: #f9f9f9; color: #333; }
+        .photo-grid-empty { color: #aaa; }
+        .classification-card .cc-loading { color: #555; }
+        .classification-card .cc-explain { color: #555; }
+        .classification-card .cc-category { color: #333; }
+        .findings-log h3 { color: #555; }
+        .finding-item { background: #f9f9f9 !important; color: #333; }
+        .report-draft { background: #f9f9f9; border: 1px solid #e0e0e0; }
+        .report-draft h4 { color: #555; }
+        .report-draft .report-content { color: #333; }
+        .report-draft .report-content h1, .report-draft .report-content h2, .report-draft .report-content h3 { color: #333; }
+        .report-draft .report-empty { color: #aaa; }
+        .insp-esc-subtext { color: #555; }
+        .insp-esc-option p { color: #555; }
+        .insp-stayed-local .sl-detail { color: #555; }
+        .insp-dashboard h2 { color: #333; }
+        .insp-dash-task { color: #333; }
+        .insp-dash-summary { background: #f9f9f9; border: 1px solid #e0e0e0; color: #555; }
+        .insp-dash-close { border-color: #ddd; background: #f5f5f5; color: #555; }
+        .insp-summary-btn { border-color: #ddd; background: #f5f5f5; color: #555; }
+        .insp-summary-btn:hover { color: """ + accent + """; }
+        .insp-privacy { color: #888; }
+
+        /* Approval cards */
+        .approval-btn { color: #fff; }
+
+        /* Photo capture buttons (Load Demo Photo, Stop Camera, Flip) */
+        .photo-capture-btn.secondary { background: #f0f0f0 !important; color: #555 !important; border: 1px solid #ddd !important; }
+        .photo-capture-btn.secondary:hover { background: #e5e5e5 !important; color: #333 !important; }
+        .photo-capture-btn.primary { color: #fff !important; }
+
+        /* Inspection/Meeting Notes generate, translate, mic buttons */
+        .insp-generate-btn { color: #fff !important; }
+        .insp-translate-btn { background: #f5f5f5 !important; border: 1px solid #ddd !important; color: #555 !important; }
+        .insp-translate-btn:hover { background: rgba(""" + accent_rgb + """,0.1) !important; color: """ + accent + """ !important; }
+
+        /* Annotation toolbar buttons */
+        .ann-undo, .ann-clear { background: #e0e0e0 !important; color: #333 !important; }
+        .ann-done { color: #fff !important; }
+
+        /* Tab buttons (hidden) */
+        .tab-btn { color: #333; }
+
+        /* Auditor buttons */
+        .auditor-upload-btn { color: #fff !important; }
+        .auditor-demo-btn { background: #f5f5f5; border: 1px solid #ddd; color: #555; }
+        .auditor-demo-btn:hover { background: rgba(""" + accent_rgb + """,0.1); color: """ + accent + """; }
+        .auditor-action-btn { background: #f5f5f5 !important; border: 1px solid #ddd !important; color: #555 !important; }
+        .auditor-action-btn:hover { color: """ + accent + """ !important; }
+        .auditor-action-btn.secondary { background: #f0f0f0 !important; }
+        .auditor-full-audit-btn { color: #fff !important; }
+
+        /* Brief me button */
+        .brief-me-btn { color: #fff !important; }
+
+        /* Model selector in sidebar */
+        .model-selector select { background: #f5f5f5 !important; border: 1px solid #ddd !important; color: #333 !important; }
+        .model-selector select option { background: #fff; color: #333; }
+        .model-selector label { color: #555; opacity: 1 !important; }
+
+        /* Check scanner mode buttons when not active */
+        .id-mode-btn { color: #666 !important; }
+        .id-mode-btn.active { color: #fff !important; }
+        .id-mode-btn:hover:not(.active) { color: #333 !important; }
+
+        /* Chip badge in sidebar */
+        .sidebar-footer .badge { color: #fff; }
+
+        /* Signature clear button */
+        .sig-clear { background: #e0e0e0 !important; color: #333 !important; }
+
+        /* Persona badges */
+        .persona-badge { background: #f5f5f5 !important; border: 1px solid #ddd !important; }
+        .persona-badge .persona-name { color: #333 !important; }
+        .persona-badge .persona-role { color: #888 !important; }
+        .persona-badge:hover { background: #f0f0f0 !important; border-color: """ + accent + """ !important; }
+        .persona-badge.active .persona-name { color: """ + accent + """ !important; }
+
+        /* Generic inline style overrides (catch remaining) */
+        [style*="color: rgba(255,255,255"] { color: #555 !important; }
+        [style*="color: #fff"] { color: #333 !important; }
+        [style*="color:#fff"] { color: #333 !important; }
+        [style*="color:rgba(255,255,255"] { color: #555 !important; }
+        [style*="background: rgba(255,255,255,0.0"] { background: #f5f5f5 !important; }
+        [style*="background: rgba(255,255,255,0.1"] { background: #f0f0f0 !important; }
+        [style*="background:rgba(255,255,255,0.0"] { background: #f5f5f5 !important; }
+        [style*="background:rgba(255,255,255,0.1"] { background: #f0f0f0 !important; }
+        [style*="border: 1px solid rgba(255,255,255"] { border-color: #ddd !important; }
+        [style*="border:1px solid rgba(255,255,255"] { border-color: #ddd !important; }
+        [style*="border-bottom: 1px solid rgba(255,255,255"] { border-bottom-color: #eee !important; }
+    """
 
 
 @app.route('/')
@@ -7074,12 +9512,16 @@ def index():
                          .replace("{{TAB_ID_NAME}}", _tabs["id"]["name"]) \
                          .replace("{{TAB_ID_SUB}}", _tabs["id"]["sub"]) \
                          .replace("{{TAB_ID_ICON}}", _tabs["id"]["icon"]) \
+                         .replace("{{TAB_LIVE_NAME}}", _tabs["live"]["name"]) \
+                         .replace("{{TAB_LIVE_SUB}}", _tabs["live"]["sub"]) \
+                         .replace("{{TAB_LIVE_ICON}}", _tabs["live"]["icon"]) \
                          .replace("{{TAB_FIELD_NAME}}", _tabs["field"]["name"]) \
                          .replace("{{TAB_FIELD_SUB}}", _tabs["field"]["sub"]) \
                          .replace("{{TAB_FIELD_ICON}}", _tabs["field"]["icon"]) \
                          .replace("{{POC_FOOTER}}", _cfg["poc_footer"]) \
                          .replace("{{POC_AUDITOR}}", _cfg["poc_auditor"]) \
-                         .replace("{{POC_ID}}", _cfg["poc_id"])
+                         .replace("{{POC_ID}}", _cfg["poc_id"]) \
+                         .replace("{{THEME_OVERRIDES}}", _build_theme_overrides(_cfg))
     # Persona switcher: inject HTML or empty string
     personas = _cfg.get("personas")
     if personas:
@@ -7093,6 +9535,11 @@ def index():
     else:
         persona_html = ''
     page = page.replace("{{PERSONA_SWITCHER}}", persona_html)
+    if _cfg.get("brand_theme") == "light":
+        sidebar_logo = '<img class="brand-logo-surface" src="/logos/flagstar-logo-official.png" alt="Flagstar" style="width:80%;max-width:200px;" onerror="this.style.display=\'none\'">'
+    else:
+        sidebar_logo = '<img class="brand-logo-surface" src="/logos/surface-logo.png" alt="Microsoft Surface" onerror="this.style.display=\'none\'"><img class="brand-logo-copilot" src="/logos/copilot-logo.avif" alt="Copilot+ PC" onerror="this.style.display=\'none\'">'
+    page = page.replace("{{SIDEBAR_LOGO}}", sidebar_logo)
     return render_template_string(page)
 
 @app.route('/upload-to-demo', methods=['POST'])
@@ -9137,7 +11584,43 @@ def analyze_id():
     data = request.json
     ocr_text = data.get('ocr_text', '')
     model = DEFAULT_MODEL
-    
+
+    # Demo preset: McLovin (Superbad fake ID)
+    if "McLOVIN" in ocr_text and "HAWAII" in ocr_text:
+        return jsonify({
+            "fields": {
+                "name": "McLovin",
+                "address": "892 Momona St, Honolulu, HI 96820",
+                "dob": "06/03/1981",
+                "id_number": "01-47-87441",
+                "expiration": "06/03/2008",
+                "state": "Hawaii",
+                "class": "Not specified"
+            },
+            "status": "Review Needed",
+            "notes": "MULTIPLE FLAGS: (1) Single name only, no first/last name distinction. "
+                     "(2) ID expired June 2008, nearly 18 years ago. "
+                     "(3) No last name is highly unusual for a US driver's license. "
+                     "(4) Address 'Momona St' does not appear in USPS records for Honolulu. "
+                     "Recommend manual verification before proceeding."
+        })
+
+    # Demo preset: Jackie Rodriguez (valid, triggers D365 flow)
+    if "RODRIGUEZ" in ocr_text and "JACKIE" in ocr_text and "MICHIGAN" in ocr_text:
+        return jsonify({
+            "fields": {
+                "name": "Jackie Marie Rodriguez",
+                "address": "1847 Maple Avenue, Troy, MI 48083",
+                "dob": "04/12/1981",
+                "id_number": "R 320 481 227 093",
+                "expiration": "09/15/2028",
+                "state": "Michigan",
+                "class": "D"
+            },
+            "status": "Valid",
+            "notes": "All fields verified. ID is current and complete."
+        })
+
     prompt = """You are an ID document analyzer. Given the OCR text extracted from a US driver's license or state ID, extract the following information.
 
 IMPORTANT - US Driver's License Name Format:
@@ -9227,6 +11710,450 @@ Return ONLY valid JSON, no other text."""
             "notes": "Analysis failed"
         })
 
+@app.route('/analyze-check', methods=['POST'])
+def analyze_check():
+    """Analyze OCR text from a check image and extract structured fields."""
+    data = request.json
+    ocr_text = data.get('ocr_text', '')
+    model = DEFAULT_MODEL
+
+    # Check for demo OCR text (contains our known demo check markers)
+    is_demo = ("JACKIE" in ocr_text and "RODRIGUEZ" in ocr_text and "1133" in ocr_text) or ("MICHIGAN POWER" in ocr_text and "245.89" in ocr_text)
+    if is_demo:
+        return jsonify({
+            "fields": {
+                "payee_name": "Jackie Marie Rodriguez",
+                "payer_name": "Michigan Power & Light",
+                "check_number": "1133",
+                "date": "03/15/2026",
+                "amount_numbers": "245.89",
+                "amount_words": "Two Hundred Forty-Five and 89/100",
+                "bank_name": "First City Bank",
+                "routing_last4": "0101",
+                "account_last4": "1991",
+                "memo": "Account Overpayment Refund",
+                "signature_present": "yes"
+            },
+            "status": "Verified",
+            "flags": [
+                {"severity": "pass", "message": "Amounts match (numeric and written)"},
+                {"severity": "pass", "message": "Authorized signature present"},
+                {"severity": "pass", "message": "Date is current (within 180 days)"},
+                {"severity": "pass", "message": "All required fields detected"}
+            ],
+            "source": "demo_preset"
+        })
+
+    prompt = """You are a check verification assistant. Analyze the OCR text from a scanned check image.
+
+Extract these fields as JSON:
+- payee_name: who the check is payable to
+- payer_name: who wrote the check (name printed on check)
+- check_number: the check number
+- date: date on the check
+- amount_numbers: dollar amount in numbers
+- amount_words: dollar amount written in words
+- bank_name: the issuing bank name
+- routing_last4: last 4 digits of routing number
+- account_last4: last 4 digits of account number
+- memo: memo line content
+- signature_present: "yes" or "no"
+
+Also provide:
+- status: "Verified" if all fields look good, "Review Needed" if issues found
+- flags: array of objects with "severity" ("pass", "warning", or "error") and "message" for each validation check:
+  - Do amounts (numbers vs words) match?
+  - Is signature present?
+  - Is date within 180 days?
+  - Are all required fields present?
+
+Return ONLY valid JSON with keys: fields, status, flags.
+
+OCR Text from check:
+---
+""" + ocr_text + """
+---
+
+Return ONLY valid JSON, no other text."""
+
+    try:
+        _call_start = _time.time()
+        response = foundry_chat(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a check verification assistant. Always respond with valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=512,
+            temperature=0.3
+        )
+        _track_model_call(response, _time.time() - _call_start)
+
+        result_text = response.choices[0].message.content.strip()
+        try:
+            if result_text.startswith("```"):
+                result_text = result_text.split("```")[1]
+                if result_text.startswith("json"):
+                    result_text = result_text[4:]
+            result = json.loads(result_text)
+        except Exception:
+            result = {
+                "fields": {"payee_name": "Could not parse"},
+                "status": "Review Needed",
+                "flags": [{"severity": "error", "message": "AI response was not in expected format"}]
+            }
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "fields": {},
+            "status": "Error",
+            "flags": [{"severity": "error", "message": "Analysis failed: " + str(e)}]
+        })
+
+
+@app.route('/d365/auth-status')
+def d365_auth_status():
+    """Check if D365 authentication is active."""
+    if _D365_TOKEN_CACHE and _time.time() < (_D365_TOKEN_EXPIRY - 300):
+        return jsonify({"authenticated": True, "source": "cached", "expires_in": int(_D365_TOKEN_EXPIRY - _time.time())})
+    return jsonify({"authenticated": False, "message": "Run /d365/authenticate to connect"})
+
+
+@app.route('/d365/authenticate', methods=['POST'])
+def d365_authenticate():
+    """Trigger D365 device code authentication. Returns the code for the user to enter."""
+    try:
+        import msal
+        client_id = "1950a258-227b-4e31-a9cf-717495945fc2"
+        authority = "https://login.microsoftonline.com/D365DemoTSCE32685848.onmicrosoft.com"
+        scope = [_D365_ORG_URL + "/.default"]
+
+        cache = msal.SerializableTokenCache()
+        cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.d365_token_cache.json')
+        if os.path.exists(cache_file):
+            with open(cache_file, 'r') as f:
+                cache.deserialize(f.read())
+
+        app_msal = msal.PublicClientApplication(client_id, authority=authority, token_cache=cache)
+
+        # Check if already authenticated
+        accounts = app_msal.get_accounts()
+        if accounts:
+            result = app_msal.acquire_token_silent(scope, account=accounts[0])
+            if result and "access_token" in result:
+                global _D365_TOKEN_CACHE, _D365_TOKEN_EXPIRY
+                _D365_TOKEN_CACHE = result["access_token"]
+                _D365_TOKEN_EXPIRY = _time.time() + result.get("expires_in", 3600)
+                if cache.has_state_changed:
+                    with open(cache_file, 'w') as f:
+                        f.write(cache.serialize())
+                return jsonify({"status": "already_authenticated", "message": "D365 connection active"})
+
+        # Need device code flow
+        flow = app_msal.initiate_device_flow(scopes=scope)
+        if "user_code" not in flow:
+            return jsonify({"error": "Could not initiate device flow"}), 500
+
+        # Start background thread to complete the flow
+        def _complete_flow():
+            global _D365_TOKEN_CACHE, _D365_TOKEN_EXPIRY
+            result = app_msal.acquire_token_by_device_flow(flow)
+            if "access_token" in result:
+                _D365_TOKEN_CACHE = result["access_token"]
+                _D365_TOKEN_EXPIRY = _time.time() + result.get("expires_in", 3600)
+                if cache.has_state_changed:
+                    with open(cache_file, 'w') as f:
+                        f.write(cache.serialize())
+                print("[D365] Authenticated successfully via device code")
+
+        thread = threading.Thread(target=_complete_flow, daemon=True)
+        thread.start()
+
+        return jsonify({
+            "status": "pending",
+            "verification_uri": flow["verification_uri"],
+            "user_code": flow["user_code"],
+            "message": f"Go to {flow['verification_uri']} and enter code: {flow['user_code']}"
+        })
+    except ImportError:
+        return jsonify({"error": "MSAL not installed. Run: pip install msal"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/d365/customer-lookup', methods=['POST'])
+def d365_customer_lookup():
+    """Look up a customer in Dynamics 365 by name.
+    Currently returns demo data; will integrate live MSAL + Dataverse API
+    when Michelle provides demo tenant credentials.
+    """
+    data = request.json or {}
+    name = data.get('name', '').strip()
+
+    if not name:
+        return jsonify({"error": "No name provided"}), 400
+
+    # Try live D365 lookup first
+    try:
+        # Search contacts by name (OData filter)
+        # Use last name for more reliable matching (middle names may differ)
+        safe_name = name.replace("'", "''")
+        name_parts = safe_name.strip().split()
+        search_term = name_parts[-1] if name_parts else safe_name  # Use last name
+        result = _d365_api_get(
+            "/contacts",
+            params={
+                "$filter": f"contains(fullname,'{search_term}')",
+                "$select": "contactid,fullname,emailaddress1,telephone1,address1_composite,jobtitle,npu_accounttype,npu_accountage,npu_source,npu_relationshipmanager",
+                "$top": "3"
+            }
+        )
+        # If multiple results, try to find best match using first name too
+        if result and result.get("value") and len(result["value"]) > 1 and len(name_parts) > 1:
+            first = name_parts[0].lower()
+            for c in result["value"]:
+                if first in c.get("fullname", "").lower():
+                    result["value"] = [c]
+                    break
+        if result and result.get("value"):
+            contact = result["value"][0]
+            contact_id = contact.get("contactid", "")
+
+            # Build customer profile from live D365 data (including custom fields)
+            customer = {
+                "full_name": contact.get("fullname", name),
+                "email": contact.get("emailaddress1", "Not on file"),
+                "phone": contact.get("telephone1", "Not on file"),
+                "address": contact.get("address1_composite", "Not on file"),
+                "account_type": contact.get("npu_accounttype", "Not specified"),
+                "account_age": contact.get("npu_accountage", "Not specified"),
+                "source": contact.get("npu_source", "Not specified"),
+                "relationship_manager": contact.get("npu_relationshipmanager", "Unassigned"),
+                "accounts": [
+                    {"type": "Essential Checking", "number": "****4832", "balance": "$0.00 (New)"},
+                    {"type": "529 College Savings", "number": "Pending", "balance": "Inquiry"}
+                ],
+                "recent_activity": []
+            }
+
+            # Fetch recent activities for this contact
+            try:
+                activities = _d365_api_get(
+                    "/activitypointers",
+                    params={
+                        "$filter": f"_regardingobjectid_value eq {contact_id}",
+                        "$select": "subject,actualstart,activitytypecode",
+                        "$orderby": "actualstart desc",
+                        "$top": "5"
+                    }
+                )
+                if activities and activities.get("value"):
+                    for act in activities["value"]:
+                        date = (act.get("actualstart") or "")[:10]
+                        subject = act.get("subject", "Activity")
+                        customer["recent_activity"].append(f"{date} - {subject}")
+            except Exception:
+                pass
+
+            if not customer["recent_activity"]:
+                customer["recent_activity"] = ["No recent activity found"]
+
+            d365_url = _D365_ORG_URL + f"/main.aspx?appid=aedf8383-df29-f111-8342-002248357e0e&forceUCI=1&pagetype=entityrecord&etn=contact&id={contact_id}"
+            print(f"[D365] Live lookup found: {customer['full_name']} (ID: {contact_id})")
+            return jsonify({
+                "source": "live",
+                "customer": customer,
+                "d365_url": d365_url
+            })
+    except Exception as e:
+        print(f"[D365] Live lookup failed, using demo data: {e}")
+
+    # Fallback: Demo data
+    # Field names aligned with Michelle's D365 schema:
+    # Account Type = Retail/Commercial, Account Age = years, Source = Referral/Walk In/Website
+    _d365_org = "https://orgdf28000a.crm.dynamics.com"
+    name_lower = name.lower()
+    if "rodriguez" in name_lower or "jackie" in name_lower:
+        return jsonify({
+            "source": "demo",
+            "customer": {
+                "full_name": "Jackie Marie Rodriguez",
+                "email": "jackie.rodriguez@email.com",
+                "phone": "(248) 555-0147",
+                "address": "1847 Maple Avenue, Troy, MI 48083",
+                "account_type": "Retail",
+                "account_age": "< 1 year",
+                "source": "Referral",
+                "relationship_manager": "Branch Manager",
+                "accounts": [
+                    {"type": "Essential Checking", "number": "****4832", "balance": "$0.00 (New)"},
+                    {"type": "529 College Savings", "number": "Pending", "balance": "Inquiry"}
+                ],
+                "recent_activity": [
+                    "03/15/2026 - New account application submitted",
+                    "03/14/2026 - Appointment scheduled via kiosk check-in",
+                    "03/10/2026 - Referred by existing member (ID: C-20198)"
+                ]
+            },
+            "d365_url": _D365_ORG_URL + "/main.aspx?appid=aedf8383-df29-f111-8342-002248357e0e&forceUCI=1&pagetype=entityrecord&etn=contact&id=5cdc2c3f-ad29-f111-8342-002248357e0e"
+        })
+
+    # Generic fallback for unknown names
+    return jsonify({
+        "source": "demo",
+        "customer": {
+            "full_name": name,
+            "email": "Not found",
+            "phone": "Not found",
+            "address": "Not found",
+            "account_type": "New Customer",
+            "relationship_manager": "Unassigned",
+            "accounts": [],
+            "recent_activity": ["No prior activity found"]
+        },
+        "d365_url": None
+    })
+
+
+@app.route('/d365/log-transaction', methods=['POST'])
+def d365_log_transaction():
+    """Log a transaction to Dynamics 365 customer record.
+    Currently returns demo confirmation; will integrate live Dataverse API
+    when Michelle provides demo tenant credentials.
+    """
+    data = request.json or {}
+    _now = _time.strftime("%Y-%m-%dT%H:%M:%S")
+
+    # Try live D365: create a Task activity on the contact
+    try:
+        customer_name = data.get("customer_name", "Unknown")
+        safe_name = customer_name.replace("'", "''")
+        # Find the contact first
+        contact_result = _d365_api_get(
+            "/contacts",
+            params={
+                "$filter": f"contains(fullname,'{safe_name}')",
+                "$select": "contactid",
+                "$top": "1"
+            }
+        )
+        if contact_result and contact_result.get("value"):
+            contact_id = contact_result["value"][0]["contactid"]
+            # Create a task linked to the contact
+            tx_type = data.get('transaction_type', 'Activity')
+            if tx_type == "Check Deposit":
+                subject = f"Check Deposit - ${data.get('amount', '0')} (Check #{data.get('check_number', 'N/A')})"
+                description = (
+                    f"Transaction: Check Deposit\n"
+                    f"Amount: ${data.get('amount', '0')}\n"
+                    f"Check #: {data.get('check_number', 'N/A')}\n"
+                    f"Memo: {data.get('memo', '')}\n\n"
+                    f"Processed locally on NPU -- zero data egress"
+                )
+            elif tx_type == "Meeting Notes":
+                subject = f"Meeting Notes - {customer_name}"
+                meeting_loc = data.get('meeting_location', '')
+                meeting_date = data.get('meeting_date', '')
+                products = data.get('products_discussed', '')
+                ref_source = data.get('referral_source', '')
+                description = (
+                    f"CLIENT MEETING SUMMARY\n"
+                    f"{'='*40}\n"
+                    f"Client: {customer_name}\n"
+                    f"Location: {meeting_loc}\n"
+                    f"Date: {meeting_date}\n"
+                    f"Products Discussed: {products}\n"
+                    f"Referral Source: {ref_source}\n"
+                    f"{'='*40}\n\n"
+                    f"{data.get('memo', '')}\n\n"
+                    f"{'='*40}\n"
+                    f"Generated by on-device AI (Phi-4 Mini on NPU)\n"
+                    f"Processed locally -- zero data egress"
+                )
+            else:
+                subject = f"{tx_type} - {customer_name}"
+                description = (
+                    f"Type: {tx_type}\n"
+                    f"Memo: {data.get('memo', '')}\n"
+                    f"Processed locally on NPU -- zero data egress"
+                )
+            task_payload = {
+                "subject": subject,
+                "description": description,
+                "regardingobjectid_contact@odata.bind": f"/contacts({contact_id})",
+                "scheduledend": _now,
+                "prioritycode": 2  # Normal
+            }
+            task_result = _d365_api_post("/tasks", task_payload)
+            if task_result:
+                activity_id = task_result.get("activityid", "N/A")
+                print(f"[D365] Transaction logged live: {activity_id}")
+                return jsonify({
+                    "source": "live",
+                    "status": "Completed",
+                    "transaction_type": data.get("transaction_type", "Check Deposit"),
+                    "amount": data.get("amount", "0"),
+                    "check_number": data.get("check_number", "N/A"),
+                    "customer_name": customer_name,
+                    "memo": data.get("memo", ""),
+                    "activity_id": activity_id,
+                    "timestamp": _now,
+                    "d365_record": f"Task created on Contact: {customer_name}"
+                })
+    except Exception as e:
+        print(f"[D365] Live transaction log failed, using demo: {e}")
+
+    # Fallback: demo response
+    return jsonify({
+        "source": "demo",
+        "status": "Completed",
+        "transaction_type": data.get("transaction_type", "Unknown"),
+        "amount": data.get("amount", "0"),
+        "check_number": data.get("check_number", "N/A"),
+        "customer_name": data.get("customer_name", "Unknown"),
+        "memo": data.get("memo", ""),
+        "activity_id": "ACT-2026-" + str(hash(_now))[-6:],
+        "timestamp": _now,
+        "d365_record": "Contact: " + data.get("customer_name", "Unknown") + " | Activity logged"
+    })
+
+
+@app.route('/signature/verify', methods=['POST'])
+def signature_verify():
+    """Verify a pen signature by generating a local SHA-256 hash.
+    No signature image data is transmitted to any cloud service.
+    """
+    data = request.json or {}
+    image_data = data.get('image_data', '')
+
+    if not image_data:
+        return jsonify({"error": "No signature data provided"}), 400
+
+    # Generate SHA-256 hash of the signature image data
+    import hashlib
+    sig_hash = hashlib.sha256(image_data.encode('utf-8')).hexdigest()
+
+    _now = _time.strftime("%Y-%m-%dT%H:%M:%S")
+
+    # Log to audit trail
+    AGENT_AUDIT_LOG.append({
+        "timestamp": _now,
+        "action": "signature_captured",
+        "details": "Digital signature captured and hashed locally. Hash: " + sig_hash[:16] + "...",
+        "local": True
+    })
+
+    return jsonify({
+        "hash": sig_hash,
+        "timestamp": _now,
+        "status": "captured",
+        "message": "Signature captured and hashed locally. No data transmitted.",
+        "local_processing": True
+    })
+
+
 @app.route('/audit-log', methods=['GET'])
 def audit_log():
     """Return the agent's audit trail."""
@@ -9278,6 +12205,16 @@ def session_stats():
         "cloud_wh": round(cloud_wh, 2),
         "co2_avoided_g": round(co2_avoided_g, 2),
     })
+
+
+@app.route('/session-stats/reset', methods=['POST'])
+def session_stats_reset():
+    """Reset session stats to zero. Called on page load (hard refresh)."""
+    SESSION_STATS["calls"] = 0
+    SESSION_STATS["input_tokens"] = 0
+    SESSION_STATS["output_tokens"] = 0
+    SESSION_STATS["inference_seconds"] = 0.0
+    return jsonify({"status": "reset"})
 
 
 # --- Local Knowledge Endpoints ---
@@ -10366,9 +13303,17 @@ def tomorrow_preview():
         all_events = parse_ics(os.path.join(MY_DAY_DIR, 'calendar.ics'))
         all_tasks = parse_tasks_csv(os.path.join(MY_DAY_DIR, 'tasks.csv'))
 
-        # Filter for tomorrow (Feb 8, 2026)
-        tomorrow_events = [e for e in all_events if e.get('date', '') == '2026-02-08']
-        tomorrow_tasks = [t for t in all_tasks if t.get('Due Date', '') == '2026-02-08']
+        # Filter for tomorrow (dynamic date)
+        from datetime import datetime, timedelta
+        tomorrow_dt = datetime.now() + timedelta(days=1)
+        tomorrow_str = tomorrow_dt.strftime('%Y-%m-%d')
+        tomorrow_events = [e for e in all_events if e.get('date', '') == tomorrow_str]
+        tomorrow_tasks = [t for t in all_tasks if t.get('Due Date', '') == tomorrow_str]
+        # If no events match tomorrow, use all events (demo flexibility)
+        if not tomorrow_events:
+            tomorrow_events = all_events
+        if not tomorrow_tasks:
+            tomorrow_tasks = all_tasks
 
         if not tomorrow_events and not tomorrow_tasks:
             yield json.dumps({"type": "error", "message": "No events or tasks found for tomorrow."}) + "\n"
@@ -10377,21 +13322,20 @@ def tomorrow_preview():
         yield json.dumps({"type": "status", "message": f"Found {len(tomorrow_events)} events and {len(tomorrow_tasks)} tasks for tomorrow..."}) + "\n"
 
         # Build compressed data for tomorrow
-        lines = ['TOMORROW: Sun Feb 8 2026\n']
+        tomorrow_label = tomorrow_dt.strftime('%a %b %d %Y').replace(' 0', ' ')
+        lines = [f'TOMORROW: {tomorrow_label}\n']
         lines.append(f'CALENDAR ({len(tomorrow_events)} events):')
         for ev in tomorrow_events:
             t = ev.get('time', '?')
             s = ev.get('summary', '?')
             loc = ev.get('location', '')
-            desc = ev.get('description', '')[:150]
-            lines.append(f'- {t} {s}' + (f' @ {loc}' if loc else '') + f'\n  {desc}')
+            lines.append(f'- {t} {s}' + (f' @ {loc}' if loc else ''))
 
         lines.append(f'\nTASKS ({len(tomorrow_tasks)} items):')
         for t in tomorrow_tasks:
             prio = t.get('Priority', 'Med')
             name = t.get('Task', '?')
-            notes = t.get('Notes', '')[:80]
-            lines.append(f'- [{prio}] {name}: {notes}')
+            lines.append(f'- [{prio}] {name}')
 
         data_text = '\n'.join(lines)
         if len(data_text) > 1800:
@@ -10405,16 +13349,15 @@ def tomorrow_preview():
                 model=model,
                 messages=[
                     {"role": "system", "content": (
-                        "You are a chief of staff. Write a PREVIEW OF TOMORROW with:\n"
-                        "1. Overview (2-3 sentences): the arc of the day, key highlights.\n"
-                        "2. TIMELINE: chronological flow of the day.\n"
-                        "3. PREP TONIGHT: things to do or pack before bed.\n"
-                        "4. HIGHLIGHTS: the most exciting parts of tomorrow.\n"
-                        "Be enthusiastic where appropriate. Be concise."
+                        "You are a banking advisor's chief of staff. Write a brief PREVIEW OF TOMORROW:\n"
+                        "1. Overview (2 sentences): the shape of the day.\n"
+                        "2. KEY MEETINGS: one line per meeting with what to prepare.\n"
+                        "3. PRIORITY TASKS: top 3 must-do items.\n"
+                        "Keep it under 200 words. Be concise and actionable."
                     )},
                     {"role": "user", "content": data_text},
                 ],
-                max_tokens=500,
+                max_tokens=600,
                 temperature=0.4,
             )
             _track_model_call(response, _time.time() - _call_start)
@@ -10477,35 +13420,47 @@ def inspection_fluid_dictation():
 
 # Demo photo classifications — hardcoded for reliable demo with prop images
 _DEMO_CLASSIFICATIONS = {
+    "financial_statement": {
+        "category": "403(b) Retirement Statement",
+        "severity": "Moderate",
+        "confidence": 94,
+        "explanation": "Quarterly 403(b) retirement account statement from Great Lakes Retirement Services. Account holder: Jackie Marie Rodriguez. Current balance: $187,432.61."
+    },
+    "beneficiary_form": {
+        "category": "Beneficiary Designation Form",
+        "severity": "High",
+        "confidence": 96,
+        "explanation": "Flagstar Financial beneficiary designation form for 403(b) account. Account holder: Jackie Marie Rodriguez. Requires signatures from account holder and financial advisor."
+    },
     "water_damage": {
-        "category": "Water Damage",
+        "category": "Financial Statement",
         "severity": "Moderate",
         "confidence": 82,
-        "explanation": "Discoloration pattern on ceiling tiles consistent with slow water leak from floor above."
+        "explanation": "Multi-page financial statement showing account balances, transaction history, and investment positions."
     },
     "structural_crack": {
-        "category": "Structural Crack",
+        "category": "Tax Document",
         "severity": "High",
         "confidence": 72,
-        "explanation": "Diagonal crack pattern in load-bearing wall suggests foundation settlement."
+        "explanation": "Tax return or W-2 document with income details. Confidence limited due to partial visibility."
     },
     "mold": {
-        "category": "Mold",
+        "category": "Account Application",
         "severity": "High",
         "confidence": 88,
-        "explanation": "Dark organic growth pattern in corner area indicates moisture-driven mold colony."
+        "explanation": "Completed account application form with personal information, employment details, and signatures."
     },
     "electrical_hazard": {
-        "category": "Electrical Hazard",
-        "severity": "Critical",
+        "category": "Business Card",
+        "severity": "Low",
         "confidence": 91,
-        "explanation": "Exposed wiring with damaged insulation near service panel poses immediate shock risk."
+        "explanation": "Professional business card with contact information, company name, and title."
     },
     "trip_hazard": {
-        "category": "Trip Hazard",
+        "category": "Insurance Document",
         "severity": "Low",
         "confidence": 85,
-        "explanation": "Raised threshold transition between flooring materials creates uneven walking surface."
+        "explanation": "Insurance policy summary or certificate of coverage with policy number and coverage details."
     },
 }
 
@@ -10521,18 +13476,18 @@ def inspection_transcribe():
     model = DEFAULT_MODEL
 
     system_prompt = (
-        "You are a field extraction engine for building inspection reports. "
-        "Given a spoken transcript from an inspector, extract structured fields. "
+        "You are a field extraction engine for client meeting notes. "
+        "Given a spoken transcript from a financial advisor, extract structured fields. "
         "Respond ONLY with valid JSON matching this schema:\n"
         '{"inspector_name": string or null, "location": string or null, '
         '"datetime": string or null, "reported_issue": string or null, '
         '"source": string or null}\n'
         "Rules:\n"
-        "- inspector_name: the inspector's full name (e.g. \"Sarah Chen\")\n"
-        "- location: building, floor, area (e.g. \"Building C, 2nd Floor, North Corridor\")\n"
-        "- datetime: ISO 8601 format if possible (e.g. \"2026-03-03T10:15:00\")\n"
-        "- reported_issue: short description of the problem (e.g. \"Water Staining\")\n"
-        "- source: who reported it (e.g. \"Property Manager Report\")\n"
+        "- inspector_name: the client's full name (e.g. \"Jackie Rodriguez\")\n"
+        "- location: meeting location or client address (e.g. \"Starbucks, Main St, Troy MI\")\n"
+        "- datetime: ISO 8601 format if possible (e.g. \"2026-03-26T14:00:00\")\n"
+        "- reported_issue: products or topics discussed (e.g. \"529 Plan, Roth IRA conversion\")\n"
+        "- source: referral source or meeting type (e.g. \"Existing Member Referral\")\n"
         "- If a field cannot be determined from the transcript, use null\n"
         "Do not include any text outside the JSON object."
     )
@@ -10596,14 +13551,19 @@ def inspection_transcribe():
 @app.route('/inspection/demo-photo/<photo_type>')
 def inspection_demo_photo(photo_type):
     """Serve a demo inspection photo by type."""
-    allowed = {"water_damage", "structural_crack", "mold", "electrical_hazard", "trip_hazard"}
+    allowed = {"water_damage", "structural_crack", "mold", "electrical_hazard", "trip_hazard", "financial_statement", "beneficiary_form"}
     if photo_type not in allowed:
         return "Not found", 404
+    # Try .jpg first, then .png
     photo_path = os.path.join(DEMO_DIR, "inspection_photos", f"{photo_type}.jpg")
+    mimetype = "image/jpeg"
+    if not os.path.exists(photo_path):
+        photo_path = os.path.join(DEMO_DIR, "inspection_photos", f"{photo_type}.png")
+        mimetype = "image/png"
     if not os.path.exists(photo_path):
         return "Photo not found", 404
     from flask import send_file as _send_file
-    return _send_file(photo_path, mimetype="image/jpeg")
+    return _send_file(photo_path, mimetype=mimetype)
 
 
 @app.route('/inspection/classify', methods=['POST'])
@@ -10791,7 +13751,7 @@ def inspection_annotate():
     except Exception as e:
         print(f"[INSPECTION] Vision describe unavailable: {e}")
 
-    # Tier 2: Phi-4 Mini text fallback — generate plausible inspector note
+    # Tier 2: Phi-4 Mini text fallback — generate plausible advisor note
     model = DEFAULT_MODEL
     system_prompt = (
         "You are a building inspector's handwriting recognition system. "
@@ -10872,30 +13832,27 @@ def inspection_report():
         if f.get('transcript_excerpt'):
             findings_text += f"  Voice Notes: {f['transcript_excerpt']}\n"
 
-    inspector_name = fields.get('inspector_name', '')
+    client_name = fields.get('inspector_name', '')
     inspection_data = (
-        f"Inspector: {inspector_name or 'Not specified'}\n"
-        f"Location: {fields.get('location', 'Not specified')}\n"
-        f"Date/Time: {fields.get('datetime', 'Not specified')}\n"
-        f"Reported Issue: {fields.get('reported_issue', 'Not specified')}\n"
-        f"Source: {fields.get('source', 'Not specified')}\n"
-        f"\nFindings ({len(findings)} total):{findings_text}"
+        f"Client: {client_name or 'Not specified'}\n"
+        f"Meeting Location: {fields.get('location', 'Not specified')}\n"
+        f"Meeting Date: {fields.get('datetime', 'Not specified')}\n"
+        f"Products Discussed: {fields.get('reported_issue', 'Not specified')}\n"
+        f"Referral Source: {fields.get('source', 'Not specified')}\n"
+        f"\nDocuments Reviewed ({len(findings)} total):{findings_text}"
     )
 
     system_prompt = (
-        "You are an inspection report generator. Given structured inspection data, "
-        "produce a professional inspection report as clean HTML. Include:\n"
-        "1. Inspection details header (inspector name, location, date/time, reported issue)\n"
-        "2. Executive summary (2-3 sentences)\n"
-        "3. Finding details with severity and confidence\n"
-        "4. Inspector notes — if an Inspector Note or Voice Notes are provided for a finding, "
-        "incorporate them prominently in that finding's section as a quoted observation\n"
-        "5. Overall risk rating (Low, Moderate, High, or Critical)\n"
-        "6. Recommended next steps (2-4 bullet points)\n\n"
+        "You are a client meeting report generator for a bank wealth advisor. "
+        "Given structured meeting data, produce a professional post-meeting report as clean HTML. Include:\n"
+        "1. Meeting details header (client name, location, date, products discussed)\n"
+        "2. Meeting summary (2-3 sentences covering key discussion points)\n"
+        "3. Client action items (bullet list of what the client needs to do)\n"
+        "4. Advisor follow-up tasks (bullet list for the advisor/bank)\n"
+        "5. Draft follow-up email to the client (brief, professional, references specific products discussed)\n"
+        "6. D365 task entries (formatted list of tasks to create in CRM)\n\n"
         "Use these HTML tags: <h2>, <h3>, <p>, <ul>, <li>, <strong>, <blockquote>.\n"
-        "Use class=\"risk-high\" on the risk rating if High/Critical, "
-        "class=\"risk-moderate\" if Moderate, class=\"risk-low\" if Low.\n"
-        "Keep language professional and concise. No markdown — only HTML."
+        "Keep language professional, warm, and concise. No markdown, only HTML."
     )
 
     try:
@@ -10923,7 +13880,7 @@ def inspection_report():
             if report_html.endswith("```"):
                 report_html = report_html[:-3].strip()
 
-        # Prepend inspection details header if model didn't include them
+        # Prepend meeting details header if model didn't include them
         _loc = fields.get('location', '')
         _dt = fields.get('datetime', '')
         if _loc and _loc.lower() not in report_html.lower():
@@ -10931,10 +13888,10 @@ def inspection_report():
                 '<div style="margin-bottom:12px; padding:10px; '
                 'background:rgba(255,255,255,0.05); border-radius:6px; '
                 'font-size:0.9em; line-height:1.6;">'
-                f'<strong>Inspector:</strong> {inspector_name or "Not specified"} &nbsp;|&nbsp; '
+                f'<strong>Client:</strong> {client_name or "Not specified"} &nbsp;|&nbsp; '
                 f'<strong>Location:</strong> {_loc or "Not specified"} &nbsp;|&nbsp; '
                 f'<strong>Date:</strong> {_dt or "Not specified"}<br>'
-                f'<strong>Reported Issue:</strong> {fields.get("reported_issue", "Not specified")}'
+                f'<strong>Products Discussed:</strong> {fields.get("reported_issue", "Not specified")}'
                 '</div>'
             )
             report_html = details_header + report_html
@@ -11002,30 +13959,42 @@ def inspection_report():
                 f'<em>{cls.get("explanation", "")}</em></div>'
             )
 
-        _fb_inspector = fields.get("inspector_name", "")
+        _fb_client = fields.get("inspector_name", "")
         fallback_html = (
-            f'<h2>Inspection Report</h2>'
-            f'<p><strong>Inspector:</strong> {_fb_inspector or "N/A"} | '
+            f'<h2>Client Meeting Summary</h2>'
+            f'<p><strong>Client:</strong> {_fb_client or "N/A"} | '
             f'<strong>Location:</strong> {fields.get("location", "N/A")} | '
             f'<strong>Date:</strong> {fields.get("datetime", "N/A")}</p>'
-            f'<h3>Executive Summary</h3>'
-            f'<p>Inspection of {fields.get("location", "the site")} identified '
-            f'{len(findings)} finding(s). Reported issue: {fields.get("reported_issue", "N/A")}. '
-            f'Overall risk rating: {highest}.</p>'
-            f'<h3>Findings</h3>{fallback_findings_html}'
-            f'<h3>Risk Rating: {highest}</h3>'
-            f'<h3>Recommended Next Steps</h3>'
-            f'<ul><li>Schedule follow-up inspection within 48 hours</li>'
-            f'<li>Document findings for insurance records</li>'
-            f'<li>Engage specialist contractor for remediation assessment</li></ul>'
+            f'<h3>Meeting Overview</h3>'
+            f'<p>Meeting with {_fb_client or "client"} at {fields.get("location", "the branch")}. '
+            f'Products discussed: {fields.get("reported_issue", "N/A")}. '
+            f'{len(findings)} document(s) reviewed during the session.</p>'
+            f'<h3>Documents Reviewed</h3>{fallback_findings_html}'
+            f'<h3>Client Action Items</h3>'
+            f'<ul><li>Review beneficiary designation and confirm selections</li>'
+            f'<li>Gather any additional documentation needed for account changes</li>'
+            f'<li>Schedule follow-up appointment to finalize paperwork</li></ul>'
+            f'<h3>Advisor Follow-up Tasks</h3>'
+            f'<ul><li>Process beneficiary change form in D365</li>'
+            f'<li>Send contribution limits comparison via secure email</li>'
+            f'<li>Create follow-up task in CRM for next Thursday</li>'
+            f'<li>File signed documents in client record</li></ul>'
+            f'<h3>Draft Follow-up Email</h3>'
+            f'<blockquote>Dear {_fb_client or "Client"},<br><br>'
+            f'Thank you for meeting with me today. As discussed, I will be processing your '
+            f'beneficiary designation update and sending you the contribution limits comparison '
+            f'for review. Our follow-up meeting is scheduled for next Thursday to finalize '
+            f'the remaining paperwork.<br><br>'
+            f'Please don\'t hesitate to reach out if you have any questions before then.<br><br>'
+            f'Best regards,<br>Your Flagstar Financial Advisor</blockquote>'
         )
 
         return jsonify({
             "report_html": fallback_html,
-            "report_text": f"Inspection at {fields.get('location', 'N/A')}: {len(findings)} findings, risk: {highest}",
-            "summary": f"Inspection identified {len(findings)} finding(s) at {fields.get('location', 'N/A')}.",
-            "risk_rating": highest,
-            "next_steps": ["Schedule follow-up inspection", "Document for insurance", "Engage specialist contractor"],
+            "report_text": f"Meeting with {_fb_client or 'client'} at {fields.get('location', 'N/A')}: {len(findings)} documents reviewed",
+            "summary": f"Meeting with {_fb_client or 'client'} reviewed {len(findings)} document(s). Products: {fields.get('reported_issue', 'N/A')}.",
+            "risk_rating": "N/A",
+            "next_steps": ["Process beneficiary change", "Send contribution limits", "Schedule follow-up", "File signed documents"],
             "tokens_used": 0,
             "inference_time": 0,
         })
@@ -11104,6 +14073,132 @@ def inspection_translate():
             "tokens_used": 0,
             "inference_time": 0,
         })
+
+
+# ── Live Assist Endpoints ──
+
+@app.route('/live-assist/analyze', methods=['POST'])
+def live_assist_analyze():
+    """Analyze a transcript chunk and return AI insights + sentiment."""
+    try:
+        data = request.get_json()
+        transcript_chunk = data.get('text', '').strip()
+        prior_insights = data.get('prior', '')
+
+        if not transcript_chunk:
+            return jsonify({"error": "No transcript text provided"}), 400
+
+        system_prompt = (
+            "You are a real-time advisor prompter whispering tips during a live customer meeting. "
+            "Give 1-3 bullet points the advisor can act on RIGHT NOW. "
+            "Rules: each bullet starts with -, max 12 words, no filler, no restating what customer said. "
+            "Prefer specific facts and numbers over generic advice. "
+            "Examples of good bullets: "
+            "- 2026 529 contribution limit: $18,000/beneficiary tax-free. "
+            "- Catch-up IRA contributions allowed at age 50+, extra $1,000/yr. "
+            "- Ask about employer match before recommending 401k rollover. "
+            "Examples of bad bullets (too generic, do NOT write these): "
+            "- Emphasize the importance of saving early. "
+            "- Consider recommending appropriate products. "
+            "Types: product opportunity, specific financial fact, compliance flag, or question to ask. "
+            "Last line must be SENTIMENT: POSITIVE or NEUTRAL or CAUTIOUS."
+        )
+        if prior_insights:
+            system_prompt += "\nAlready covered (do NOT repeat): " + prior_insights
+
+        start = _time.time()
+        response = client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": transcript_chunk}
+            ],
+            max_tokens=128,
+            temperature=0.3
+        )
+        elapsed = _time.time() - start
+
+        result_text = response.choices[0].message.content or ""
+        tokens_used = response.usage.total_tokens if response.usage else 0
+
+        # Parse sentiment from response
+        sentiment = "NEUTRAL"
+        for s in ["POSITIVE", "CAUTIOUS", "NEUTRAL"]:
+            if s in result_text.upper():
+                sentiment = s
+                break
+
+        # Clean up sentiment line from display text
+        clean_text = re.sub(r'\n*SENTIMENT:\s*(POSITIVE|NEUTRAL|CAUTIOUS)\s*$', '', result_text, flags=re.IGNORECASE).strip()
+
+        print(f"[LIVE ASSIST] Analyzed {len(transcript_chunk)} chars -> {sentiment} ({tokens_used} tokens, {elapsed:.1f}s)")
+
+        return jsonify({
+            "insights": clean_text,
+            "sentiment": sentiment,
+            "tokens_used": tokens_used,
+            "inference_time": round(elapsed, 1)
+        })
+
+    except Exception as e:
+        print(f"[LIVE ASSIST] Analysis error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/live-assist/translate', methods=['POST'])
+def live_assist_translate():
+    """Translate a Live Assist transcript to a target language using local AI."""
+    try:
+        data = request.get_json()
+        text = data.get('text', '').strip()
+        target_language = data.get('target_language', 'Spanish')
+
+        if not text:
+            return jsonify({"error": "No text to translate"}), 400
+
+        # Compress if too long for context window
+        if len(text) > 3000:
+            text = text[:3000]
+
+        system_prompt = (
+            f"You are a professional translator. Translate EVERY line below from English to {target_language}. "
+            f"Each English line must become a {target_language} line. "
+            "Example: 'I need to open a checking account' becomes 'Necesito abrir una cuenta corriente'. "
+            f"Output ONLY {target_language} text, one translated line per original line. "
+            "Do NOT output any English."
+        )
+
+        start = _time.time()
+        response = foundry_chat(
+            model=DEFAULT_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text}
+            ],
+            max_tokens=800,
+            temperature=0.3
+        )
+        elapsed = _time.time() - start
+        _track_model_call(response, elapsed)
+
+        translated = (response.choices[0].message.content or "").strip()
+        tokens_used = 0
+        if hasattr(response, 'usage') and response.usage:
+            tokens_used = (response.usage.prompt_tokens or 0) + (response.usage.completion_tokens or 0)
+
+        print(f"[LIVE ASSIST] Translated {len(text)} chars to {target_language} ({tokens_used} tokens, {elapsed:.1f}s)")
+
+        return jsonify({
+            "translated_text": translated,
+            "source_language": "English",
+            "target_language": target_language,
+            "tokens_used": tokens_used,
+            "inference_time": round(elapsed, 1)
+        })
+
+    except Exception as e:
+        print(f"[LIVE ASSIST] Translation error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/health')

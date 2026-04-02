@@ -1,0 +1,91 @@
+SURFACE COPILOT+ PC — ENTERPRISE LANDING PAGE DRAFT
+Asset Type: Webpage / Microsite
+Target Audience: Commercial / Enterprise IT Decision Makers
+Region: United States
+Silicon: Intel Core Ultra (different different different Core Ultra 200V)
+
+============================================================
+HERO SECTION
+============================================================
+
+Surface Copilot+ PC — Built for the AI-Powered Workplace
+
+Your team's next PC does more than run apps — it thinks alongside them.
+Surface Copilot+ PC brings AI experiences directly to the device, powered
+by a dedicated Neural Processing Unit (NPU) so employees can work smarter
+without sending data to the cloud.
+
+[CTA: Talk to a Surface Specialist]
+
+============================================================
+KEY MESSAGING SECTION
+============================================================
+
+WHY SURFACE COPILOT+ PC FOR ENTERPRISE
+
+On-Device AI That Respects Your Data Policies
+Surface Copilot+ PC processes AI workloads locally using the built-in NPU,
+keeping sensitive data on the device. Copilot+ PC experiences are designed
+to help employees summarize, search, and create — right from their laptop.
+
+Availability varies by experience, silicon, and market.
+Learn more: aka.ms/copilotpluspcspro
+
+Built for Microsoft 365 and Your Existing Stack
+Surface Copilot+ PCs integrate with Microsoft 365, Microsoft Intune, and
+your organization's security policies out of the box. IT teams can deploy
+and manage Surface devices using familiar tools.
+
+Enterprise-Grade Security from Chip to Cloud
+Every Surface Copilot+ PC ships with Microsoft Pluton security processor,
+Secured-core PC capabilities, and Windows Hello for Business. Your security
+team gets hardware-rooted protection without additional configuration.
+
+============================================================
+CUSTOMER EVIDENCE SECTION
+============================================================
+
+"Surface devices have simplified our deployment process across 12,000
+endpoints." — Maria Torres, VP of IT Infrastructure, Contoso Financial
+(Quote used with written permission per Customer Quote Agreement.
+Contoso Financial received no compensation for this testimonial.)
+
+============================================================
+AI EXPERIENCES SECTION
+============================================================
+
+Copilot+ PC Experiences Available on Surface
+
+Recall (Preview) — Find anything you've seen on your PC using natural
+language search. Recall processes and stores snapshots locally on the
+device using the NPU.
+Note: Recall is currently in preview through Windows Insider Program and
+is not yet generally available. Feature availability and timeline subject
+to change.
+
+Live Captions with Translation — Get real-time translated captions in
+over 40 languages, processed entirely on-device.
+
+Cocreator in Paint — Generate and iterate on images using text prompts
+and drawing, powered by on-device AI.
+
+============================================================
+CALL TO ACTION
+============================================================
+
+Ready to bring AI-powered devices to your workforce?
+Contact your Microsoft Surface account team to schedule a demo and
+discuss volume licensing.
+
+[CTA: Request a Demo]  [CTA: View Surface for Business]
+
+============================================================
+DISCLAIMERS / FOOTER
+============================================================
+
+Copilot+ PC experiences availability varies by feature, device, market,
+and silicon. Some experiences require enrollment in Windows Insider
+Program and are not generally available.
+Learn more at aka.ms/copilotpluspcspro
+
+© 2026 Microsoft Corporation. All rights reserved.
