@@ -1,0 +1,24 @@
+From: IT Service Desk <it-servicedesk@flagstar.com>
+To: Frank Buchholz <fbuchholz@D365DemoTSCE32685848.onmicrosoft.com>
+Subject: Surface Pro 11th Edition Deployed - AI Banking Pilot
+Date: Fri, 04 Apr 2026 13:22:00 -0700
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+Message-ID: <20260404132200.itsd-sp-troy@flagstar.com>
+
+Frank,
+
+Your branch's Surface Pro 11th Edition devices have been deployed and enrolled in Intune. Summary:
+
+Devices delivered: 7x Surface Pro 11th Edition (Intel Core Ultra 7)
+                   7x Surface Laptop 5G (Intel Core Ultra)
+Location: Troy - Park Ave Financial Center
+Enrolled: Windows Autopilot + Intune managed
+Apps deployed: D365 Sales, Outlook, Teams, Branch Banking Suite, Foundry Local (AI runtime)
+
+Key feature: Each device has an Intel NPU (Neural Processing Unit) that runs AI models locally. The on-device AI pilot app is pre-installed -- no cloud AI services required.
+
+Please ensure all branch staff complete the 30-minute training by end of week. Training link is on the Intune Company Portal.
+
+IT Service Desk
+Flagstar Financial

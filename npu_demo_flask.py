@@ -216,6 +216,30 @@ def _graph_get_calendar_today():
         return None
 
 
+def _graph_get_recent_emails(count=10):
+    """Get recent emails from Microsoft Graph (Outlook inbox)."""
+    token = _graph_get_token()
+    if not token:
+        return None
+    try:
+        import requests as _req
+        headers = {"Authorization": f"Bearer {token}"}
+        r = _req.get(
+            f"https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages"
+            f"?$select=subject,from,receivedDateTime,bodyPreview"
+            f"&$orderby=receivedDateTime desc"
+            f"&$top={count}",
+            headers=headers, timeout=10
+        )
+        if r.status_code == 200:
+            return r.json().get("value", [])
+        print(f"[GRAPH] Mail error {r.status_code}: {r.text[:150]}")
+        return None
+    except Exception as e:
+        print(f"[GRAPH] Mail request failed: {e}")
+        return None
+
+
 # --- Demo Configuration Layer ---
 # Override these values to re-skin for any customer or industry.
 # Tab names, subtitles, colors, persona names, and POC text are all driven from here.
@@ -2798,6 +2822,42 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         }
         .warmup-time { font-size: 0.8em; color: rgba(255,255,255,0.35); margin-top: 12px; }
 
+        /* ── Performance Monitor Overlay ── */
+        .perf-monitor {
+            position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+            background: rgba(10, 12, 20, 0.92); backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.12); border-radius: 14px;
+            padding: 18px 22px 14px; width: 300px;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            color: #e0e0e0; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            transform: translateY(20px); opacity: 0; pointer-events: none;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        .perf-monitor.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+        .perf-monitor-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+        .perf-monitor-title { font-size: 0.75em; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; color: rgba(255,255,255,0.5); }
+        .perf-monitor-close { background: none; border: none; color: rgba(255,255,255,0.35); cursor: pointer; font-size: 1.1em; padding: 2px 6px; border-radius: 4px; }
+        .perf-monitor-close:hover { color: #fff; background: rgba(255,255,255,0.1); }
+        .perf-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .perf-label { width: 32px; font-size: 0.7em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.55); flex-shrink: 0; }
+        .perf-bar-track { flex: 1; height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; position: relative; }
+        .perf-bar-fill { height: 100%; border-radius: 4px; transition: width 0.8s ease; min-width: 2px; }
+        .perf-bar-fill.cpu { background: linear-gradient(90deg, #60a5fa, #3b82f6); }
+        .perf-bar-fill.gpu { background: linear-gradient(90deg, #34d399, #10b981); }
+        .perf-bar-fill.npu { background: linear-gradient(90deg, #f6d107, #f18f12); }
+        .perf-bar-fill.mem { background: linear-gradient(90deg, #a78bfa, #8b5cf6); }
+        .perf-value { width: 38px; font-size: 0.8em; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+        .perf-value.cpu { color: #60a5fa; }
+        .perf-value.gpu { color: #34d399; }
+        .perf-value.npu { color: #f6d107; }
+        .perf-value.mem { color: #a78bfa; }
+        .perf-mem-detail { font-size: 0.7em; color: rgba(255,255,255,0.3); text-align: right; margin-top: -6px; margin-bottom: 8px; }
+        .perf-sparkline { display: flex; align-items: flex-end; gap: 1px; height: 24px; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.06); }
+        .perf-sparkline-bar { width: 4px; border-radius: 1px; transition: height 0.3s ease; background: rgba(241,143,18,0.6); min-height: 1px; }
+        .perf-spark-label { display: flex; justify-content: space-between; font-size: 0.6em; color: rgba(255,255,255,0.25); margin-top: 2px; }
+        .perf-hotkey-hint { font-size: 0.65em; color: rgba(255,255,255,0.2); text-align: center; margin-top: 8px; letter-spacing: 0.5px; }
+        .perf-chip-icon { display: inline-block; font-size: 0.85em; margin-right: 3px; vertical-align: -1px; }
+
         /* ── Live Assist ── */
         .live-assist-layout { display: grid; grid-template-columns: 3fr 2fr; grid-template-rows: 1fr auto; gap: 16px; height: calc(100vh - 80px); padding: 16px; }
         .live-transcript-pane { background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
@@ -3018,6 +3078,22 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         <div class="warmup-status" id="warmupStatus">Loading {{MODEL_LABEL}} on NPU...</div>
         <div class="warmup-bar-track"><div class="warmup-bar-fill" id="warmupBar"></div></div>
         <div class="warmup-time" id="warmupTime"></div>
+    </div>
+
+    <!-- Performance Monitor Overlay (Ctrl+Shift+M) -->
+    <div class="perf-monitor" id="perfMonitor">
+        <div class="perf-monitor-header">
+            <span class="perf-monitor-title"><span class="perf-chip-icon">&#9889;</span> Device Performance</span>
+            <button class="perf-monitor-close" id="perfClose" title="Close (Ctrl+Shift+M)">&times;</button>
+        </div>
+        <div class="perf-row"><span class="perf-label">CPU</span><div class="perf-bar-track"><div class="perf-bar-fill cpu" id="perfCpuBar" style="width:0%"></div></div><span class="perf-value cpu" id="perfCpuVal">0%</span></div>
+        <div class="perf-row"><span class="perf-label">GPU</span><div class="perf-bar-track"><div class="perf-bar-fill gpu" id="perfGpuBar" style="width:0%"></div></div><span class="perf-value gpu" id="perfGpuVal">0%</span></div>
+        <div class="perf-row"><span class="perf-label">NPU</span><div class="perf-bar-track"><div class="perf-bar-fill npu" id="perfNpuBar" style="width:0%"></div></div><span class="perf-value npu" id="perfNpuVal">0%</span></div>
+        <div class="perf-row"><span class="perf-label">RAM</span><div class="perf-bar-track"><div class="perf-bar-fill mem" id="perfMemBar" style="width:0%"></div></div><span class="perf-value mem" id="perfMemVal">0%</span></div>
+        <div class="perf-mem-detail" id="perfMemDetail">0 / 0 GB</div>
+        <div class="perf-sparkline" id="perfSparkline"></div>
+        <div class="perf-spark-label"><span>NPU 30s</span><span>now</span></div>
+        <div class="perf-hotkey-hint">Ctrl + Shift + M</div>
     </div>
 
     <!-- Mobile hamburger (hidden on desktop) -->
@@ -8923,6 +8999,72 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             if (stopBtn) stopBtn.addEventListener("click", stopSession);
         })();
 
+        // ── Performance Monitor Overlay (Ctrl+Shift+M) ──
+        (function() {
+            var panel = document.getElementById("perfMonitor");
+            var closeBtn = document.getElementById("perfClose");
+            var pollTimer = null;
+            var sparkData = [];
+            var MAX_SPARK = 30;
+
+            // Initialize sparkline bars
+            var sparkContainer = document.getElementById("perfSparkline");
+            for (var i = 0; i < MAX_SPARK; i++) {
+                var bar = document.createElement("div");
+                bar.className = "perf-sparkline-bar";
+                bar.style.height = "1px";
+                sparkContainer.appendChild(bar);
+                sparkData.push(0);
+            }
+
+            function updateStats() {
+                fetch("/system-stats").then(function(r) { return r.json(); }).then(function(d) {
+                    document.getElementById("perfCpuBar").style.width = d.cpu + "%";
+                    document.getElementById("perfCpuVal").textContent = d.cpu + "%";
+                    document.getElementById("perfGpuBar").style.width = d.gpu + "%";
+                    document.getElementById("perfGpuVal").textContent = d.gpu + "%";
+                    document.getElementById("perfNpuBar").style.width = d.npu + "%";
+                    document.getElementById("perfNpuVal").textContent = d.npu + "%";
+                    document.getElementById("perfMemBar").style.width = d.mem_pct + "%";
+                    document.getElementById("perfMemVal").textContent = d.mem_pct + "%";
+                    document.getElementById("perfMemDetail").textContent = d.mem_used + " / " + d.mem_total + " GB";
+
+                    // Update NPU sparkline
+                    sparkData.push(d.npu);
+                    if (sparkData.length > MAX_SPARK) sparkData.shift();
+                    var bars = sparkContainer.children;
+                    for (var i = 0; i < bars.length && i < sparkData.length; i++) {
+                        bars[i].style.height = Math.max(1, sparkData[i] * 0.24) + "px";
+                    }
+                }).catch(function() {});
+            }
+
+            function showPanel() {
+                panel.classList.add("visible");
+                updateStats();
+                pollTimer = setInterval(updateStats, 1000);
+            }
+
+            function hidePanel() {
+                panel.classList.remove("visible");
+                if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+            }
+
+            function togglePanel() {
+                if (panel.classList.contains("visible")) hidePanel(); else showPanel();
+            }
+
+            // Hotkey: Ctrl+Shift+M
+            document.addEventListener("keydown", function(e) {
+                if (e.ctrlKey && e.shiftKey && e.key === "M") {
+                    e.preventDefault();
+                    togglePanel();
+                }
+            });
+
+            if (closeBtn) closeBtn.addEventListener("click", hidePanel);
+        })();
+
     </script>
 
     <!-- D365 Mockup Overlay -->
@@ -13063,18 +13205,55 @@ def brief_me():
     def generate():
         start = _time.time()
 
-        # Step 1: Parse all data sources
-        yield json.dumps({"type": "status", "message": "Reading calendar..."}) + "\n"
-        events = parse_ics(os.path.join(MY_DAY_DIR, 'calendar.ics'))
-        yield json.dumps({"type": "status", "message": f"Found {len(events)} events"}) + "\n"
+        # Step 1: Parse all data sources — try Microsoft Graph first, fall back to local files
 
+        # Calendar: Graph API (live Outlook) → local .ics
+        yield json.dumps({"type": "status", "message": "Reading Outlook calendar..."}) + "\n"
+        graph_cal = _graph_get_calendar_today()
+        if graph_cal is not None:
+            events = []
+            for ev in graph_cal:
+                start_dt = ev.get('start', {}).get('dateTime', '')
+                end_dt = ev.get('end', {}).get('dateTime', '')
+                try:
+                    from datetime import datetime as _dt
+                    st = _dt.fromisoformat(start_dt)
+                    time_str = st.strftime('%I:%M %p').lstrip('0')
+                except Exception:
+                    time_str = start_dt[:16]
+                events.append({
+                    'time': time_str,
+                    'summary': ev.get('subject', '?'),
+                    'location': (ev.get('location', {}) or {}).get('displayName', ''),
+                    'description': ev.get('bodyPreview', '')[:200],
+                })
+            yield json.dumps({"type": "status", "message": f"Found {len(events)} events (Outlook)"}) + "\n"
+        else:
+            events = parse_ics(os.path.join(MY_DAY_DIR, 'calendar.ics'))
+            yield json.dumps({"type": "status", "message": f"Found {len(events)} events (local)"}) + "\n"
+
+        # Tasks: local CSV (no Graph Tasks.Read permission)
         yield json.dumps({"type": "status", "message": "Reading tasks..."}) + "\n"
         tasks = parse_tasks_csv(os.path.join(MY_DAY_DIR, 'tasks.csv'))
         yield json.dumps({"type": "status", "message": f"Found {len(tasks)} tasks"}) + "\n"
 
-        yield json.dumps({"type": "status", "message": "Scanning inbox..."}) + "\n"
-        emails = parse_inbox(MY_DAY_INBOX)
-        yield json.dumps({"type": "status", "message": f"Found {len(emails)} emails"}) + "\n"
+        # Email: Graph API (live Outlook inbox) → local .eml files
+        yield json.dumps({"type": "status", "message": "Scanning Outlook inbox..."}) + "\n"
+        graph_mail = _graph_get_recent_emails(10)
+        if graph_mail is not None:
+            emails = []
+            for em in graph_mail:
+                from_info = em.get('from', {}).get('emailAddress', {})
+                from_str = from_info.get('name', from_info.get('address', '?'))
+                emails.append({
+                    'subject': em.get('subject', '?'),
+                    'from': from_str,
+                    'preview': em.get('bodyPreview', '')[:200],
+                })
+            yield json.dumps({"type": "status", "message": f"Found {len(emails)} emails (Outlook)"}) + "\n"
+        else:
+            emails = parse_inbox(MY_DAY_INBOX)
+            yield json.dumps({"type": "status", "message": f"Found {len(emails)} emails (local)"}) + "\n"
 
         # Guard: if no data at all, return a clear message instead of letting the model hallucinate
         if not events and not tasks and not emails:
@@ -14200,6 +14379,112 @@ def live_assist_translate():
         print(f"[LIVE ASSIST] Translation error: {e}")
         return jsonify({"error": str(e)}), 500
 
+
+# ── System Performance Monitor ──────────────────────────────────────────
+import psutil as _psutil
+try:
+    import win32pdh as _win32pdh
+    _HAS_PDH = True
+except ImportError:
+    _HAS_PDH = False
+
+_perf_stats = {"cpu": 0, "gpu": 0, "npu": 0, "mem_pct": 0, "mem_used": 0, "mem_total": 0}
+_perf_lock = threading.Lock()
+_GPU_LUID = None
+_NPU_LUID = None
+
+def _poll_perf_stats():
+    """Background thread: poll CPU/memory/GPU/NPU every ~2s via win32pdh (native, no subprocess)."""
+    global _GPU_LUID, _NPU_LUID
+    if not _HAS_PDH:
+        print("  Perf monitor: win32pdh not available, GPU/NPU stats disabled", flush=True)
+        return
+
+    _psutil.cpu_percent()  # prime
+    luid_re = re.compile(r'luid_(0x[0-9a-f]+_0x[0-9a-f]+).*engtype_(\S+)', re.IGNORECASE)
+
+    # Open PDH query with both counters
+    query = _win32pdh.OpenQuery()
+    try:
+        util_counter = _win32pdh.AddCounter(query, r'\GPU Engine(*)\Utilization Percentage')
+    except Exception as e:
+        print(f"  Perf monitor: cannot add GPU counters: {e}", flush=True)
+        return
+
+    # Prime with two collections (rate counters need a baseline)
+    _win32pdh.CollectQueryData(query)
+    _time.sleep(2)
+    _win32pdh.CollectQueryData(query)
+
+    # Detect GPU vs NPU LUIDs from engine types
+    try:
+        util_items = _win32pdh.GetFormattedCounterArray(util_counter, _win32pdh.PDH_FMT_DOUBLE)
+        luids_3d = set()
+        luids_compute = set()
+        for name in util_items:
+            m = luid_re.search(name)
+            if m:
+                luid, etype = m.group(1).lower(), m.group(2).lower()
+                if etype == '3d':
+                    luids_3d.add(luid)
+                elif etype == 'compute':
+                    luids_compute.add(luid)
+        if luids_3d:
+            _GPU_LUID = sorted(luids_3d)[0]
+        npu_only = luids_compute - luids_3d
+        if npu_only:
+            _NPU_LUID = sorted(npu_only)[0]
+        print(f"  Perf monitor: GPU LUID={_GPU_LUID}, NPU LUID={_NPU_LUID}", flush=True)
+    except Exception as e:
+        print(f"  Perf monitor: LUID detection failed: {e}", flush=True)
+
+    # Main poll loop — fast polling (500ms) with EMA smoothing for bursty NPU
+    npu_ema = 0.0
+    gpu_ema = 0.0
+    EMA_UP = 0.8    # fast rise to capture spikes
+    EMA_DOWN = 0.06  # very slow decay — keeps peaks visible for ~5s
+    while True:
+        try:
+            cpu = _psutil.cpu_percent()
+            mem = _psutil.virtual_memory()
+            gpu_raw = 0.0
+            npu_raw = 0.0
+
+            _win32pdh.CollectQueryData(query)
+            util_items = _win32pdh.GetFormattedCounterArray(util_counter, _win32pdh.PDH_FMT_DOUBLE)
+
+            for name, val in util_items.items():
+                name_lower = name.lower()
+                if _GPU_LUID and _GPU_LUID in name_lower:
+                    gpu_raw += val
+                if _NPU_LUID and _NPU_LUID in name_lower:
+                    npu_raw += val
+
+            # EMA smoothing: fast attack, slow release
+            alpha = EMA_UP if npu_raw > npu_ema else EMA_DOWN
+            npu_ema = alpha * npu_raw + (1 - alpha) * npu_ema
+            alpha_g = EMA_UP if gpu_raw > gpu_ema else EMA_DOWN
+            gpu_ema = alpha_g * gpu_raw + (1 - alpha_g) * gpu_ema
+
+            with _perf_lock:
+                _perf_stats['cpu'] = round(cpu, 1)
+                _perf_stats['gpu'] = round(min(gpu_ema, 100), 1)
+                _perf_stats['npu'] = round(min(npu_ema, 100), 1)
+                _perf_stats['mem_pct'] = round(mem.percent, 1)
+                _perf_stats['mem_used'] = round(mem.used / (1024**3), 1)
+                _perf_stats['mem_total'] = round(mem.total / (1024**3), 1)
+        except Exception:
+            pass
+        _time.sleep(0.5)
+
+# Start perf polling thread
+threading.Thread(target=_poll_perf_stats, daemon=True, name="perf-monitor").start()
+
+@app.route('/system-stats')
+def system_stats():
+    """Return cached system performance stats for the live monitor overlay."""
+    with _perf_lock:
+        return jsonify(dict(_perf_stats))
 
 @app.route('/health')
 def health_check():
