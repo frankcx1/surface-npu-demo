@@ -25,7 +25,8 @@ app.MapGet("/health", () =>
         status = "ok",
         service = "vision-service",
         runtime = "Phi Silica Vision (Windows App SDK)",
-        phi_silica_available = VisionClassifier.IsAvailable
+        phi_silica_available = VisionClassifier.IsAvailable,
+        writing_assistant_available = TextRewriterService.IsAvailable
     });
 });
 
@@ -71,6 +72,20 @@ app.MapPost("/classify", async (HttpRequest request) =>
     return Results.Json(result);
 });
 
+// --- Rewrite text with Writing Assistant (Phi Silica TextRewriter on NPU) ---
+app.MapPost("/rewrite", async (HttpRequest request) =>
+{
+    if (!TextRewriterService.IsAvailable)
+        return Results.Json(new { error = "TextRewriter (Writing Assistant) not available on this device" }, statusCode: 503);
+
+    var body = await request.ReadFromJsonAsync<RewriteRequest>();
+    if (body == null || string.IsNullOrWhiteSpace(body.Text))
+        return Results.BadRequest(new { error = "No 'text' field in request" });
+
+    var result = await TextRewriterService.RewriteAsync(body.Text, body.Tone ?? body.Instruction);
+    return Results.Json(result);
+});
+
 // --- Extract handwritten text from ink overlay ---
 app.MapPost("/extract-text", async (HttpRequest request) =>
 {
@@ -93,12 +108,22 @@ app.MapPost("/extract-text", async (HttpRequest request) =>
 
 // Initialize Phi Silica on startup
 await VisionClassifier.InitializeAsync();
+await TextRewriterService.InitializeAsync();
 
 Console.WriteLine("==============================================");
 Console.WriteLine("Vision Service (Phi Silica on NPU)");
-Console.WriteLine($"  Phi Silica Available: {VisionClassifier.IsAvailable}");
-Console.WriteLine("  Endpoints: /health, /describe, /classify, /extract-text");
+Console.WriteLine($"  Phi Silica Vision:   {VisionClassifier.IsAvailable}");
+Console.WriteLine($"  Writing Assistant:   {TextRewriterService.IsAvailable}");
+Console.WriteLine("  Endpoints: /health, /describe, /classify, /extract-text, /rewrite");
 Console.WriteLine("  Listening on http://localhost:5100");
 Console.WriteLine("==============================================");
 
 app.Run();
+
+// Request model for /rewrite endpoint
+public record RewriteRequest
+{
+    public string? Text { get; init; }
+    public string? Tone { get; init; }
+    public string? Instruction { get; init; }
+}

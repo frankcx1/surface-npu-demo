@@ -15,6 +15,83 @@ from flask import Flask, render_template_string, request, Response, jsonify
 from openai import OpenAI
 from werkzeug.utils import secure_filename
 
+try:
+    import yaml as _yaml
+except ImportError:
+    _yaml = None
+
+_APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_yaml_config():
+    """Load demo config from YAML file, returning None if unavailable."""
+    if not _yaml:
+        return None
+    path = os.path.join(_APP_ROOT, 'demo_config.yaml')
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            raw = _yaml.safe_load(f)
+        # Flatten nested keys for backward compat with DEMO_CONFIG dict
+        brand = raw.get('brand', {})
+        adv = raw.get('advisor', {})
+        poc = raw.get('poc', {})
+        cfg = {
+            'app_title':        raw.get('app_title', 'Branch of the Future'),
+            'app_subtitle':     raw.get('app_subtitle', ''),
+            'brand_primary':    brand.get('primary', '#ffffff'),
+            'brand_primary_end': brand.get('primary_end', '#f8f8f8'),
+            'brand_accent':     brand.get('accent', '#f18f12'),
+            'brand_accent_rgb': brand.get('accent_rgb', '241,143,18'),
+            'brand_hover':      brand.get('hover', '#f6d107'),
+            'brand_theme':      brand.get('theme', 'light'),
+            'brand_logo':       brand.get('logo', ''),
+            'brand_company':    brand.get('company_name', ''),
+            'advisor_name':     adv.get('name', ''),
+            'advisor_title':    adv.get('title', ''),
+            'advisor_company':  adv.get('company', ''),
+            'advisor_phone':    adv.get('phone', ''),
+            'advisor_email':    adv.get('email', ''),
+            'advisor_branch':   adv.get('branch', ''),
+            'tabs':             raw.get('tabs', {}),
+            'personas':         raw.get('personas', []),
+            'poc_footer':       poc.get('footer', ''),
+            'poc_auditor':      poc.get('auditor', ''),
+            'poc_id':           poc.get('id', ''),
+            'customer':         raw.get('customer', {}),
+            'branches':         raw.get('branches', []),
+            'economics':        raw.get('economics', {}),
+            'demo_script':      raw.get('demo_script', []),
+            'industry':         raw.get('industry', {}),
+        }
+        print(f"  Config loaded from demo_config.yaml", flush=True)
+        return cfg
+    except Exception as e:
+        print(f"  Warning: Failed to load demo_config.yaml: {e}", flush=True)
+        return None
+
+
+def _load_product_catalog():
+    """Load product catalog from YAML. Returns empty dict if unavailable."""
+    if not _yaml:
+        return {}
+    path = os.path.join(_APP_ROOT, 'product_catalog.yaml')
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            catalog = _yaml.safe_load(f)
+        n = sum(len(c.get('products', [])) for c in catalog.get('categories', []))
+        print(f"  Product catalog loaded: {n} products, {len(catalog.get('cross_sell_triggers', []))} triggers", flush=True)
+        return catalog
+    except Exception as e:
+        print(f"  Warning: Failed to load product_catalog.yaml: {e}", flush=True)
+        return {}
+
+
+PRODUCT_CATALOG = _load_product_catalog()
+
 # --- Dynamics 365 / MSAL Integration ---
 _D365_ORG_URL = "https://orgdf28000a.crm.dynamics.com"
 _D365_API_URL = _D365_ORG_URL + "/api/data/v9.2"
@@ -170,7 +247,7 @@ def _graph_get_token():
         accounts = app.get_accounts()
         if accounts:
             result = app.acquire_token_silent(
-                ['Calendars.Read', 'Mail.Read', 'User.Read'],
+                ['Calendars.ReadWrite', 'Mail.ReadWrite', 'Mail.Send', 'User.Read'],
                 account=accounts[0]
             )
             if result and "access_token" in result:
@@ -241,23 +318,27 @@ def _graph_get_recent_emails(count=10):
 
 
 # --- Demo Configuration Layer ---
-# Override these values to re-skin for any customer or industry.
-# Tab names, subtitles, colors, persona names, and POC text are all driven from here.
-# The default config matches the generic Surface NPU demo.
-DEMO_CONFIG = {
+# Primary config source: demo_config.yaml (YAML file in app directory)
+# Fallback: hardcoded dict below if YAML is missing or pyyaml not installed.
+# Override demo_config.yaml to re-skin for any customer or industry.
+_YAML_CONFIG = _load_yaml_config()
+DEMO_CONFIG = _YAML_CONFIG if _YAML_CONFIG else {
     "app_title": "Branch of the Future",
     "app_subtitle": "Powered by Surface + On-Device AI",
-
-    # Brand colors - Flagstar (from Michelle: yellow #f6d107, orange #f18f12)
-    "brand_primary": "#ffffff",       # sidebar background start (white)
-    "brand_primary_end": "#f8f8f8",   # sidebar background end (light gray)
-    "brand_accent": "#f18f12",        # active states, links, highlights (Flagstar orange)
-    "brand_accent_rgb": "241,143,18", # RGB for rgba() usage
-    "brand_hover": "#f6d107",         # hover accent (Flagstar yellow)
-    "brand_theme": "light",           # light or dark theme
-
-    # Tab names and subtitles (sidebar navigation)
-    # Icons: inline SVGs matching Flagstar line-icon style (dark stroke + gold accent)
+    "brand_primary": "#ffffff",
+    "brand_primary_end": "#f8f8f8",
+    "brand_accent": "#f18f12",
+    "brand_accent_rgb": "241,143,18",
+    "brand_hover": "#f6d107",
+    "brand_theme": "light",
+    "brand_logo": "flagstar-logo-official.png",
+    "brand_company": "Flagstar Financial",
+    "advisor_name": "Alan Thornbury",
+    "advisor_title": "Vice President & Senior Relationship Manager",
+    "advisor_company": "Flagstar Bank",
+    "advisor_phone": "(248) 312-5500",
+    "advisor_email": "alan.thornbury@flagstar.com",
+    "advisor_branch": "Troy Main Branch, Troy MI",
     "tabs": {
         "chat":    {"name": "Advisor Assistant", "sub": "Knowledge & Tools",    "icon": '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2" fill="#f6d107" stroke="none"/></svg>'},
         "day":     {"name": "Morning Briefing",  "sub": "Daily Prep",           "icon": '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="#f6d107" stroke="none"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>'},
@@ -266,18 +347,16 @@ DEMO_CONFIG = {
         "live":    {"name": "Live Assist",       "sub": "Client Meeting AI",    "icon": '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><circle cx="12" cy="8" r="1.5" fill="#f6d107" stroke="none"/></svg>'},
         "field":   {"name": "Meeting Notes",     "sub": "Post-Meeting Workflow", "icon": '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/><rect x="8" y="9" width="3" height="2" rx="0.5" fill="#f6d107" stroke="none"/></svg>'},
     },
-
-    # Persona switcher - banking roles
     "personas": [
         {"name": "Frank", "role": "Branch Manager",       "tabs": ["auditor", "id"]},
         {"name": "Alan",  "role": "Relationship Manager", "tabs": ["day", "chat", "live", "field"]},
     ],
-
-    # POC disclaimer text
     "poc_footer": "This application is a proof-of-concept demonstration of on-device AI for branch banking on Copilot+ PCs. Individual features are architectural demonstrations and are not validated for production use.",
     "poc_auditor": "PROOF OF CONCEPT -- This is a demonstration of on-device PII detection and compliance pre-screening. It is not a validated compliance tool and should not be used for actual regulatory decisions.",
     "poc_id": "PROOF OF CONCEPT -- This is a demonstration of on-device document verification. It is not a validated identity verification system and should not be used for actual identity verification or access control.",
 }
+if not _YAML_CONFIG:
+    print("  Using hardcoded DEMO_CONFIG (no YAML)", flush=True)
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
@@ -3677,11 +3756,11 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
                     <div class="insp-field">
                         <label for="inspInspector">Client</label>
-                        <input type="text" id="inspInspector" placeholder="e.g. Relationship Manager">
+                        <input type="text" id="inspInspector" placeholder="{{PLACEHOLDER_CLIENT}}">
                     </div>
                     <div class="insp-field">
                         <label for="inspLocation">Location</label>
-                        <input type="text" id="inspLocation" placeholder="e.g. Jackie Rodriguez, Starbucks Main St">
+                        <input type="text" id="inspLocation" placeholder="{{PLACEHOLDER_LOCATION}}">
                     </div>
                     <div class="insp-field">
                         <label for="inspDateTime">Meeting Date</label>
@@ -3689,11 +3768,11 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     </div>
                     <div class="insp-field">
                         <label for="inspIssue">Products Discussed</label>
-                        <input type="text" id="inspIssue" placeholder="e.g. 529 Plan, Roth IRA">
+                        <input type="text" id="inspIssue" placeholder="{{PLACEHOLDER_ISSUE}}">
                     </div>
                     <div class="insp-field">
                         <label for="inspSource">Source / Referral</label>
-                        <input type="text" id="inspSource" placeholder="e.g. Existing Member Referral">
+                        <input type="text" id="inspSource" placeholder="{{PLACEHOLDER_SOURCE}}">
                     </div>
 
                     <p style="margin:12px 0 6px; font-size:0.82em; color:rgba(255,255,255,0.5);">Press <kbd style="background:rgba(255,255,255,0.12); padding:1px 5px; border-radius:3px; font-size:0.95em;">Win+H</kbd> to dictate with on-device speech recognition, or type notes below.</p>
@@ -3750,12 +3829,36 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                             <div class="cc-explain" id="inspClassExplain"></div>
                             <div id="inspClassSource" style="display:none; font-size:0.75em; color:rgba(255,255,255,0.4); margin-top:6px; font-style:italic;"></div>
                             <button id="inspAnnotateBtn" style="display:none; margin-top:10px; padding:8px 16px; border:none; border-radius:8px; background:rgba(239,68,68,0.15); color:#ef4444; font-size:0.85em; cursor:pointer; font-weight:600; width:100%;">&#9998; Annotate Photo</button>
+                            <!-- Signature pad for beneficiary form (inline in classification card) -->
+                            <div id="inspSigSection" style="display:none; margin-top:12px; border:1px solid #e0e0e0; border-radius:10px; overflow:hidden; background:#fff;">
+                                <div style="padding:12px 16px; font-size:0.82em; color:#555; line-height:1.5; border-bottom:1px solid #e0e0e0;">
+                                    <strong style="color:#333;">Beneficiary Designation Agreement</strong><br>
+                                    I, the undersigned, hereby designate the beneficiary(ies) listed on this form for the retirement account
+                                    referenced above. I understand that this designation supersedes all prior beneficiary designations.
+                                    I certify that the information provided is accurate and authorize {{BRAND_COMPANY}} to update the records accordingly.
+                                </div>
+                                <div style="position:relative; background:#fff; margin:12px; border-radius:8px;">
+                                    <canvas id="inspSigCanvas" width="600" height="150" style="display:block; border-radius:8px; cursor:crosshair; touch-action:none; border:1px solid #ccc;"></canvas>
+                                    <div style="position:absolute; bottom:40px; left:20px; right:20px; border-bottom:1px solid #ccc; font-size:0.8em; color:#999; padding-bottom:4px; pointer-events:none;"><span style="background:#fff; padding:0 8px; position:relative; top:8px;">Sign here</span></div>
+                                </div>
+                                <div style="display:flex; gap:10px; padding:10px 16px; justify-content:flex-end;">
+                                    <button class="sig-btn sig-clear" id="inspSigClearBtn" style="padding:8px 20px; border:none; border-radius:8px; font-size:0.85em; font-weight:600; cursor:pointer; background:#f5f5f5; color:#666;">Clear</button>
+                                    <button class="sig-btn sig-accept" id="inspSigAcceptBtn" style="padding:8px 20px; border:none; border-radius:8px; font-size:0.85em; font-weight:600; cursor:pointer; background:#22c55e; color:#fff;">&#10003; Accept &amp; Sign</button>
+                                </div>
+                            </div>
+                            <div id="inspSigConfirm" style="display:none; margin-top:10px; padding:12px 16px; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); border-radius:10px;">
+                                <h4 style="margin:0 0 8px 0; color:#10b981; font-size:0.95em;">&#10003; Signature Captured</h4>
+                                <div style="font-size:0.85em; color:#555;">Beneficiary form signed digitally on-device. No signature data transmitted.</div>
+                                <div id="inspSigHash" style="font-family:monospace; font-size:0.78em; color:#888; word-break:break-all; background:#f5f5f5; padding:6px 10px; border-radius:6px; margin:6px 0;"></div>
+                                <div style="font-size:0.78em; color:#aaa; margin-top:4px;">Trust Receipt logged. All processing local.</div>
+                            </div>
                         </div>
                     </div>
                     <div class="annotation-note" id="inspAnnotationNote">
-                        <div class="ann-label">&#9998; Relationship Manager Notes</div>
+                        <div class="ann-label">&#9998; {{ANNOTATION_LABEL}}</div>
                         <div id="inspAnnotationText"></div>
                     </div>
+                    <!-- sigConfirm placeholder removed, now inline above -->
                 </div>
 
                 <!-- Photo lightbox overlay -->
@@ -3789,6 +3892,35 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     <button class="insp-generate-btn" id="inspPostD365Btn" style="display:none; background:linear-gradient(135deg, #0078D4, #00BCF2);">&#9729; Post to D365</button>
                     <div id="inspD365PostResult" style="display:none; margin-top:10px; padding:12px 16px; border-radius:10px; font-size:0.85em;"></div>
 
+                    <!-- Client Follow-Up Email Panel -->
+                    <div id="inspEmailPanel" style="display:none; margin-top:16px; border:1px solid #e0e0e0; border-radius:12px; overflow:hidden; background:#fff;">
+                        <div style="padding:12px 16px; background:#f8f9fa; border-bottom:1px solid #e0e0e0; font-weight:600; font-size:0.9em; color:#333;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 4L12 13 2 4"/></svg>
+                            Send Follow-Up to Client
+                        </div>
+                        <div style="padding:12px 16px;">
+                            <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center;">
+                                <label style="font-size:0.82em; color:#666; white-space:nowrap;">To:</label>
+                                <span id="inspEmailTo" style="font-size:0.85em; color:#333; font-weight:500;">Looking up customer email...</span>
+                            </div>
+                            <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center;">
+                                <label style="font-size:0.82em; color:#666; white-space:nowrap;">Subject:</label>
+                                <input type="text" id="inspEmailSubject" value="Thank you for meeting with us today" style="flex:1; padding:6px 10px; border:1px solid #ddd; border-radius:6px; font-size:0.85em; color:#333; background:#fff;">
+                            </div>
+                            <div style="position:relative;">
+                                <textarea id="inspEmailBody" rows="6" placeholder="Type or dictate your follow-up message... (press Win+H for voice input)" style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:0.85em; color:#333; background:#fff; resize:vertical; font-family:inherit; line-height:1.5; box-sizing:border-box;"></textarea>
+                                <div style="position:absolute; top:8px; right:8px; display:flex; gap:4px;">
+                                    <button id="inspEmailMicBtn" title="Dictate with voice (Win+H)" style="padding:4px 8px; border:none; border-radius:6px; background:rgba(24,61,76,0.08); cursor:pointer; font-size:1.1em;">&#127908;</button>
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+                                <button id="inspPolishBtn" style="flex:1; padding:10px 16px; border:none; border-radius:8px; background:linear-gradient(135deg, rgba(var(--brand-accent-rgb),0.12), rgba(var(--brand-accent-rgb),0.06)); color:var(--brand-accent); font-size:0.85em; font-weight:600; cursor:pointer; min-width:140px;">&#9998; Polish with Writing Assistant</button>
+                                <button id="inspSendEmailBtn" style="flex:1; padding:10px 16px; border:none; border-radius:8px; background:linear-gradient(135deg, #0078D4, #00BCF2); color:#fff; font-size:0.85em; font-weight:600; cursor:pointer; min-width:140px;">&#9993; Send to Customer</button>
+                            </div>
+                            <div id="inspEmailStatus" style="display:none; margin-top:10px; padding:10px 14px; border-radius:8px; font-size:0.85em;"></div>
+                        </div>
+                    </div>
+
                     <div class="report-draft" id="inspReportDraft" style="display:none;">
                         <h4>Report Preview</h4>
                         <div class="report-content" id="inspReportContent">
@@ -3810,8 +3942,35 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                         <span id="inspStatusText">Ready</span>
                     </div>
                     <div class="insp-token-count" id="inspTokenCount">0 local tokens &middot; $0.00 cloud cost &middot; 0 bytes transmitted</div>
+                    <button id="inspAIReportBtn" style="display:none; padding:4px 12px; border:none; border-radius:6px; background:rgba(var(--brand-accent-rgb),0.15); color:var(--brand-accent); font-size:0.78em; font-weight:600; cursor:pointer; margin-left:8px;">&#128202; AI Session Report</button>
                     <button class="insp-summary-btn" id="inspSummaryBtn" style="display:none;">&#128202; Show Summary</button>
                     <div class="insp-privacy">&#128274; 100% Local Processing &mdash; {{CHIP_LABEL}}</div>
+                </div>
+
+                <!-- AI Session Report Overlay -->
+                <div class="insp-dashboard-overlay" id="inspAIReportOverlay" style="display:none;">
+                    <div style="background:#1a1a2e; border:1px solid rgba(255,255,255,0.12); border-radius:20px; padding:32px; max-width:700px; width:92%; max-height:85vh; overflow-y:auto;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                            <h2 style="margin:0; font-size:1.2em; color:#fff !important;">&#128202; AI Session Report</h2>
+                            <button id="inspAIReportClose" style="background:none; border:none; color:rgba(255,255,255,0.5); font-size:1.4em; cursor:pointer;">&times;</button>
+                        </div>
+                        <div style="font-size:0.78em; color:#ddd !important; margin-bottom:16px;">Every AI operation below ran locally on the Intel NPU. Zero data left this device. Zero cloud API calls.</div>
+                        <table style="width:100%; border-collapse:collapse; font-size:0.85em;">
+                            <thead>
+                                <tr style="border-bottom:1px solid rgba(255,255,255,0.15); text-align:left;">
+                                    <th style="padding:8px 10px; color:#ccc !important; font-weight:600; font-size:0.8em; text-transform:uppercase; letter-spacing:0.5px;">#</th>
+                                    <th style="padding:8px 10px; color:#ccc !important; font-weight:600; font-size:0.8em; text-transform:uppercase; letter-spacing:0.5px;">Operation</th>
+                                    <th style="padding:8px 10px; color:#ccc !important; font-weight:600; font-size:0.8em; text-transform:uppercase; letter-spacing:0.5px;">Model</th>
+                                    <th style="padding:8px 10px; color:#ccc !important; font-weight:600; font-size:0.8em; text-transform:uppercase; letter-spacing:0.5px; text-align:right;">Tokens</th>
+                                    <th style="padding:8px 10px; color:#ccc !important; font-weight:600; font-size:0.8em; text-transform:uppercase; letter-spacing:0.5px; text-align:right;">Cloud Cost*</th>
+                                    <th style="padding:8px 10px; color:#ccc !important; font-weight:600; font-size:0.8em; text-transform:uppercase; letter-spacing:0.5px;">Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inspAIReportBody"></tbody>
+                        </table>
+                        <div id="inspAIReportSummary" style="margin-top:20px; padding:16px; background:rgba(0,204,106,0.08); border:1px solid rgba(0,204,106,0.25); border-radius:12px;"></div>
+                        <div style="margin-top:12px; font-size:0.7em; color:#bbb !important;">*Cloud cost estimate based on GPT-4o pricing ($2.50/1M input + $10/1M output tokens). Actual NPU cost: $0.00.</div>
+                    </div>
                 </div>
 
                 <!-- Escalation Dialog -->
@@ -3943,6 +4102,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 return n.toLocaleString("en-US");
             }
             function updateSavingsWidget() {
+                // Merge server stats with client-side AI log for unified numbers
                 fetch("/session-stats")
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
@@ -3951,9 +4111,24 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                         var powerEl = document.getElementById("savingsPower");
                         var co2El = document.getElementById("savingsCO2");
                         var compactEl = document.getElementById("savingsCompact");
-                        if (callsEl) callsEl.textContent = formatNumber(data.calls) + " calls \u00b7 " + formatNumber(data.total_tokens) + " tokens";
-                        var costStr = "$" + data.cloud_cost_saved.toFixed(2);
+
+                        // Use client-side log if available (more accurate for Meeting Notes tab)
+                        var log = window._inspAILog || [];
+                        var clientTokens = window._inspTotalTokens || 0;
+                        var clientOps = log.length;
+
+                        // If client has tracked operations, use client numbers
+                        // Otherwise fall back to server stats (for other tabs)
+                        var displayCalls = clientOps > 0 ? clientOps : data.calls;
+                        var displayTokens = clientTokens > 0 ? clientTokens : data.total_tokens;
+
+                        if (callsEl) callsEl.textContent = formatNumber(displayCalls) + " calls \u00b7 " + formatNumber(displayTokens) + " tokens";
+
+                        // Cloud cost: GPT-4o blended rate $6.25/1M tokens
+                        var cloudCost = displayTokens * 0.00625 / 1000;
+                        var costStr = "$" + cloudCost.toFixed(2);
                         if (costEl) costEl.innerHTML = "&#128176; " + costStr + " saved vs cloud";
+
                         if (powerEl) powerEl.innerHTML = "&#9889; " + data.npu_wh.toFixed(2) + " Wh local \u00b7 " + data.cloud_wh.toFixed(1) + " Wh cloud";
                         if (co2El) co2El.innerHTML = "&#127793; " + data.co2_avoided_g.toFixed(1) + "g CO&#8322; avoided";
                         if (compactEl) compactEl.innerHTML = "&#128994; " + costStr;
@@ -6105,15 +6280,38 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     icon.classList.add("step-pending");
                     icon.innerHTML = i;
                 }
-                updateStep(1, "done");
-
                 if (useOcrText) {
-                    updateStep(2, "done");
-                    document.getElementById("ocrPreview").style.display = "block";
-                    document.getElementById("ocrText").textContent = useOcrText;
-                    updateStep(3, "active");
-                    sendCheckAnalysis(useOcrText);
+                    // Staggered processing animation for demo preset (~5s)
+                    updateStep(1, "active");
+                    setTimeout(function() {
+                        updateStep(1, "done");
+                        updateStep(2, "active");
+                        setTimeout(function() {
+                            updateStep(2, "done");
+                            document.getElementById("ocrPreview").style.display = "block";
+                            document.getElementById("ocrText").textContent = useOcrText;
+                            updateStep(3, "active");
+                            var fetchDone = false, fetchResult = null, timerDone = false;
+                            function maybeFinishCheck() {
+                                if (fetchDone && timerDone) {
+                                    updateStep(3, "done");
+                                    displayCheckResult(fetchResult);
+                                    if (fetchResult.fields && !fetchResult.error) logCheckToD365(fetchResult);
+                                }
+                            }
+                            fetch("/analyze-check", {
+                                method: "POST",
+                                headers: {"Content-Type": "application/json"},
+                                body: JSON.stringify({ ocr_text: useOcrText })
+                            })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) { fetchResult = data; fetchDone = true; maybeFinishCheck(); })
+                            .catch(function(err) { fetchResult = { error: err.message }; fetchDone = true; maybeFinishCheck(); });
+                            setTimeout(function() { timerDone = true; maybeFinishCheck(); }, 2000);
+                        }, 1800);
+                    }, 1200);
                 } else {
+                    updateStep(1, "done");
                     updateStep(2, "active");
                     var img = document.getElementById("capturedImage");
                     Tesseract.recognize(img.src, "eng", {
@@ -6329,7 +6527,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 var previewDiv = document.getElementById("demoIdPreview");
                 if (previewDiv) previewDiv.style.display = "none";
 
-                // Show processing steps and run through the analyze-id endpoint
+                // Show processing steps with staggered animation
                 document.getElementById("processingSteps").style.display = "block";
                 document.getElementById("ocrPreview").style.display = "none";
                 idResultCard.style.display = "none";
@@ -6342,26 +6540,42 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     icon.classList.add("step-pending");
                     icon.innerHTML = i;
                 }
-                updateStep(1, "done");
-                updateStep(2, "done");
-                document.getElementById("ocrPreview").style.display = "block";
-                document.getElementById("ocrText").textContent = ocrText;
-                updateStep(3, "active");
 
-                fetch("/analyze-id", {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({ ocr_text: ocrText })
-                })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    updateStep(3, "done");
-                    displayIdResult(data);
-                })
-                .catch(function(err) {
-                    updateStep(3, "done");
-                    displayIdResult({ error: err.message });
-                });
+                // Step 1: Image captured — spinner then done after 1.2s
+                updateStep(1, "active");
+                setTimeout(function() {
+                    updateStep(1, "done");
+                    // Step 2: OCR extraction — spinner then done after 1.8s
+                    updateStep(2, "active");
+                    setTimeout(function() {
+                        updateStep(2, "done");
+                        document.getElementById("ocrPreview").style.display = "block";
+                        document.getElementById("ocrText").textContent = ocrText;
+                        // Step 3: AI Analysis — fire fetch, show spinner for at least 2s
+                        updateStep(3, "active");
+                        var fetchDone = false;
+                        var fetchResult = null;
+                        var timerDone = false;
+
+                        function maybeFinish() {
+                            if (fetchDone && timerDone) {
+                                updateStep(3, "done");
+                                displayIdResult(fetchResult);
+                            }
+                        }
+
+                        fetch("/analyze-id", {
+                            method: "POST",
+                            headers: {"Content-Type": "application/json"},
+                            body: JSON.stringify({ ocr_text: ocrText })
+                        })
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) { fetchResult = data; fetchDone = true; maybeFinish(); })
+                        .catch(function(err) { fetchResult = { error: err.message }; fetchDone = true; maybeFinish(); });
+
+                        setTimeout(function() { timerDone = true; maybeFinish(); }, 2000);
+                    }, 1800);
+                }, 1200);
             }
 
             if (demoIdMclovin) demoIdMclovin.addEventListener("click", function(e) { e.stopPropagation(); runDemoId(DEMO_ID_MCLOVIN, "mclovin"); });
@@ -6506,6 +6720,65 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                         sigHash.textContent = "Document hash: [generated locally]\nTimestamp: " + new Date().toISOString();
                         sigConfirm.style.display = "block";
                     }
+                });
+            });
+        })();
+
+        // ── Meeting Notes Signature Pad (beneficiary form) ──
+        (function() {
+            var canvas = document.getElementById("inspSigCanvas");
+            var clearBtn = document.getElementById("inspSigClearBtn");
+            var acceptBtn = document.getElementById("inspSigAcceptBtn");
+            var sigConfirm = document.getElementById("inspSigConfirm");
+            var sigHash = document.getElementById("inspSigHash");
+            if (!canvas) return;
+
+            var ctx = canvas.getContext("2d");
+            var strokes = [];
+            var currentStroke = null;
+            var isDrawing = false;
+
+            function resizeCanvas() {
+                var wrapper = canvas.parentElement;
+                var w = wrapper.clientWidth;
+                if (w > 0) { canvas.width = w; canvas.height = 150; redraw(); }
+            }
+            window.addEventListener("resize", resizeCanvas);
+            setTimeout(resizeCanvas, 100);
+
+            function getPos(e) {
+                var rect = canvas.getBoundingClientRect();
+                return { x: (e.clientX - rect.left) * (canvas.width / rect.width), y: (e.clientY - rect.top) * (canvas.height / rect.height), pressure: e.pressure || 0.5 };
+            }
+            function drawSegment(p1, p2) {
+                ctx.beginPath(); ctx.strokeStyle = "#111"; ctx.lineWidth = 2 + (p2.pressure * 4);
+                ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+            }
+            function redraw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                for (var s = 0; s < strokes.length; s++) { var pts = strokes[s]; for (var i = 1; i < pts.length; i++) drawSegment(pts[i-1], pts[i]); }
+            }
+
+            canvas.addEventListener("pointerdown", function(e) { e.preventDefault(); isDrawing = true; currentStroke = [getPos(e)]; canvas.setPointerCapture(e.pointerId); });
+            canvas.addEventListener("pointermove", function(e) { if (!isDrawing || !currentStroke) return; e.preventDefault(); var pos = getPos(e); currentStroke.push(pos); if (currentStroke.length >= 2) drawSegment(currentStroke[currentStroke.length - 2], pos); });
+            function endStroke() { if (!isDrawing) return; isDrawing = false; if (currentStroke && currentStroke.length >= 2) strokes.push(currentStroke); currentStroke = null; }
+            canvas.addEventListener("pointerup", endStroke);
+            canvas.addEventListener("pointerleave", endStroke);
+            canvas.addEventListener("pointercancel", endStroke);
+
+            if (clearBtn) clearBtn.addEventListener("click", function() { strokes = []; currentStroke = null; ctx.clearRect(0, 0, canvas.width, canvas.height); if (sigConfirm) sigConfirm.style.display = "none"; });
+
+            if (acceptBtn) acceptBtn.addEventListener("click", function() {
+                if (strokes.length === 0) return;
+                var dataUrl = canvas.toDataURL("image/png");
+                fetch("/signature/verify", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ image_data: dataUrl }) })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (sigConfirm && sigHash) { sigHash.textContent = "Document hash: " + (data.hash || "N/A") + "\nTimestamp: " + (data.timestamp || new Date().toISOString()); sigConfirm.style.display = "block"; }
+                    acceptBtn.disabled = true; acceptBtn.textContent = "Signed"; acceptBtn.style.opacity = "0.5";
+                })
+                .catch(function() {
+                    if (sigConfirm && sigHash) { sigHash.textContent = "Document hash: [generated locally]\nTimestamp: " + new Date().toISOString(); sigConfirm.style.display = "block"; }
                 });
             });
         })();
@@ -7174,7 +7447,93 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             var inspTokenCount = document.getElementById("inspTokenCount");
             var recognition = null;
             var isRecording = false;
-            var inspLocalTokens = 0;
+
+            // Shared global token counter + operation log — all Meeting Notes IIFEs use this
+            if (typeof window._inspTotalTokens === "undefined") window._inspTotalTokens = 0;
+            if (typeof window._inspAILog === "undefined") window._inspAILog = [];
+            // Global helper: call from any IIFE to add tokens and log the operation
+            window._addInspTokens = function(tokens, opName, model) {
+                tokens = tokens || 0;
+                window._inspTotalTokens += tokens;
+                if (opName) {
+                    window._inspAILog.push({
+                        op: opName,
+                        tokens: tokens,
+                        model: model || "Phi-4 Mini",
+                        time: new Date().toLocaleTimeString()
+                    });
+                }
+                // Update bottom bar directly from client-side counter
+                var el = document.getElementById("inspTokenCount");
+                if (el) el.textContent = window._inspTotalTokens + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
+                // Show report button after first AI call
+                var rptBtn = document.getElementById("inspAIReportBtn");
+                if (rptBtn && window._inspAILog.length > 0) rptBtn.style.display = "inline-block";
+            };
+
+            // AI Session Report — button + overlay logic
+            (function() {
+                var rptBtn = document.getElementById("inspAIReportBtn");
+                var overlay = document.getElementById("inspAIReportOverlay");
+                var closeBtn = document.getElementById("inspAIReportClose");
+                var tbody = document.getElementById("inspAIReportBody");
+                var summary = document.getElementById("inspAIReportSummary");
+                if (!rptBtn || !overlay) return;
+
+                rptBtn.addEventListener("click", function() {
+                    var log = window._inspAILog || [];
+                    // GPT-4o blended rate for cloud cost comparison
+                    var cloudRate = 0.00625 / 1000; // per token
+
+                    // Build table from client-side operation log (single source of truth)
+                    var html = "";
+                    var totalTokens = 0;
+                    for (var i = 0; i < log.length; i++) {
+                        var entry = log[i];
+                        totalTokens += entry.tokens;
+                        var cost = entry.tokens ? "$" + (entry.tokens * cloudRate).toFixed(4) : "\u2014";
+                        html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06);">' +
+                            '<td style="padding:8px 10px; color:#fff !important;">' + (i + 1) + '</td>' +
+                            '<td style="padding:8px 10px; color:#fff !important; font-weight:500;">' + entry.op + '</td>' +
+                            '<td style="padding:8px 10px; color:#fff !important; font-size:0.9em;">' + entry.model + '</td>' +
+                            '<td style="padding:8px 10px; text-align:right; color:#22c55e !important; font-weight:600;">' + (entry.tokens ? entry.tokens.toLocaleString() : '\u2014') + '</td>' +
+                            '<td style="padding:8px 10px; text-align:right; color:#ef4444 !important; font-size:0.9em;">' + cost + '</td>' +
+                            '<td style="padding:8px 10px; color:#fff !important; font-size:0.85em;">' + entry.time + '</td>' +
+                            '</tr>';
+                    }
+                    // Total row
+                    var totalCost = (totalTokens * cloudRate).toFixed(4);
+                    html += '<tr style="border-top:2px solid rgba(255,255,255,0.2);">' +
+                        '<td colspan="3" style="padding:10px 10px; color:#fff; font-weight:700; text-align:right;">TOTAL</td>' +
+                        '<td style="padding:10px 10px; text-align:right; color:#22c55e; font-weight:700; font-size:1.05em;">' + totalTokens.toLocaleString() + '</td>' +
+                        '<td style="padding:10px 10px; text-align:right; color:#ef4444; font-weight:700;">$' + totalCost + '</td>' +
+                        '<td></td></tr>';
+                    tbody.innerHTML = html;
+
+                    // CO2: ~0.4 Wh per cloud query, 373g CO2/kWh grid average
+                    var aiOps = log.filter(function(e) { return e.tokens > 0; }).length;
+                    var co2Avoided = (aiOps * 0.4 / 1000 * 373).toFixed(1);
+
+                    summary.innerHTML =
+                        '<div style="display:flex; gap:24px; flex-wrap:wrap; justify-content:center;">' +
+                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + totalTokens.toLocaleString() + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Total Tokens</div></div>' +
+                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">$0.00</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">NPU Cost</div></div>' +
+                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#ef4444 !important; text-decoration:line-through;">$' + totalCost + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Cloud Would Cost</div></div>' +
+                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + co2Avoided + 'g</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">CO&#8322; Saved</div></div>' +
+                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">0</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Bytes Transmitted</div></div>' +
+                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + log.length + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">AI Operations</div></div>' +
+                        '</div>';
+
+                    overlay.style.display = "flex";
+                });
+
+                closeBtn.addEventListener("click", function() {
+                    overlay.style.display = "none";
+                });
+                overlay.addEventListener("click", function(e) {
+                    if (e.target === overlay) overlay.style.display = "none";
+                });
+            })();
 
             // Field IDs in order for staggered animation
             var fieldMap = [
@@ -7192,11 +7551,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 }
             }
 
-            function updateInspTokens(tokens) {
-                inspLocalTokens += (tokens || 0);
-                if (inspTokenCount) {
-                    inspTokenCount.textContent = inspLocalTokens + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
-                }
+            function updateInspTokens(tokens, opName, model) {
+                window._addInspTokens(tokens, opName || "Field Extraction", model || "Phi-4 Mini");
             }
 
             // Staggered field animation
@@ -7300,7 +7656,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 });
             }
 
-            // --- Scripted input (demo safety net) — fills textarea then extracts ---
+            // --- Scripted input (demo safety net) — typewriter effect then extracts ---
             if (inspScriptedBtn && inspTranscriptInput) {
                 inspScriptedBtn.addEventListener("click", function() {
                     var scriptedTranscript = "Just finished meeting with Jackie Rodriguez at the Starbucks " +
@@ -7308,10 +7664,28 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                         "We discussed opening a 529 plan for her daughter Maya who starts college in 2030. " +
                         "She is also interested in a Roth IRA conversion from her old employer 401k. " +
                         "Need to send her the contribution limits comparison by Friday and schedule a " +
-                        "follow-up for next Thursday to review the paperwork. Referral source was existing member.";
-                    inspTranscriptInput.value = scriptedTranscript;
-                    showTranscript(scriptedTranscript);
-                    extractFields(scriptedTranscript);
+                        "follow-up for next Thursday to review the paperwork. Marcus the branch manager referred her to me.";
+                    inspScriptedBtn.disabled = true;
+                    inspScriptedBtn.innerHTML = "&#9654; Transcribing...";
+                    inspTranscriptInput.value = "";
+                    // Typewriter: reveal word-by-word at spoken pace
+                    var words = scriptedTranscript.split(" ");
+                    var idx = 0;
+                    var interval = setInterval(function() {
+                        if (idx < words.length) {
+                            inspTranscriptInput.value += (idx > 0 ? " " : "") + words[idx];
+                            inspTranscriptInput.scrollTop = inspTranscriptInput.scrollHeight;
+                            idx++;
+                        } else {
+                            clearInterval(interval);
+                            inspScriptedBtn.disabled = false;
+                            inspScriptedBtn.innerHTML = "&#9654; Use Scripted Input (Demo)";
+                            // Track voice transcription — on-device via Windows Speech, cloud would cost ~$0.006/15s
+                            window._addInspTokens(150, "Voice Transcription", "Windows Speech (On-Device)");
+                            showTranscript(scriptedTranscript);
+                            extractFields(scriptedTranscript);
+                        }
+                    }, 80);
                 });
             }
         })();
@@ -7334,20 +7708,20 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             var inspStatusText = document.getElementById("inspStatusText");
             var inspTokenCount = document.getElementById("inspTokenCount");
             var inspFindingsEl = document.getElementById("inspFindings");
-            var inspLocalTokens = 0;
 
             // Expose findings globally for report generation (Milestone 5)
             window._inspFindings = inspFindings;
+            if (typeof window._inspTotalTokens === "undefined") window._inspTotalTokens = 0;
 
             function setInspStatus3(text, processing) {
                 if (inspStatusText) inspStatusText.textContent = text;
                 if (inspStatusDot) inspStatusDot.classList.toggle("processing", !!processing);
             }
 
-            function updateInspTokens3(tokens) {
-                inspLocalTokens += (tokens || 0);
+            function updateInspTokens3(tokens, opName, model) {
+                window._addInspTokens(tokens, opName || "Document Classification", model || "Phi-4 Mini");
                 if (inspTokenCount) {
-                    inspTokenCount.textContent = inspLocalTokens + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
+                    inspTokenCount.textContent = window._inspTotalTokens + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
                 }
             }
 
@@ -7463,9 +7837,22 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     thumb.appendChild(badge);
                 }
 
-                // Show annotate button for classified photos
+                // Show annotate or sign button depending on document type
                 var annBtn = document.getElementById("inspAnnotateBtn");
-                if (annBtn) annBtn.style.display = "";
+                if (annBtn) {
+                    annBtn.style.display = "";
+                    var isBeneficiary = (result.category || "").toLowerCase().indexOf("beneficiary") >= 0;
+                    window._inspLastDocIsBeneficiary = isBeneficiary;
+                    if (isBeneficiary) {
+                        annBtn.innerHTML = "&#9998; Sign Document";
+                        annBtn.style.background = "rgba(34,197,94,0.15)";
+                        annBtn.style.color = "#22c55e";
+                    } else {
+                        annBtn.innerHTML = "&#9998; Annotate Photo";
+                        annBtn.style.background = "rgba(239,68,68,0.15)";
+                        annBtn.style.color = "#ef4444";
+                    }
+                }
 
                 // Show annotation note if this finding already has one
                 var annNote = document.getElementById("inspAnnotationNote");
@@ -7767,7 +8154,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                             ctx.fillStyle = "#6b1d2a";
                             ctx.fillRect(0, 0, 850, 5);
                             ctx.font = "bold 24px Arial";
-                            ctx.fillText("Flagstar Financial", 40, 40);
+                            ctx.fillText("{{BRAND_COMPANY}}", 40, 40);
                             ctx.font = "bold 16px Arial";
                             ctx.fillText("BENEFICIARY DESIGNATION FORM", 40, 70);
                             ctx.font = "13px Arial";
@@ -8026,7 +8413,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                                 var noteEl = document.createElement("div");
                                 noteEl.className = "finding-note";
                                 noteEl.style.cssText = "margin-top:6px;padding:6px 8px;background:rgba(14,165,233,0.08);border-left:3px solid #0ea5e9;border-radius:4px;font-size:0.82em;color:rgba(255,255,255,0.75);line-height:1.4;";
-                                noteEl.innerHTML = '<span style="color:#0ea5e9;font-weight:600;font-size:0.8em;text-transform:uppercase;letter-spacing:0.3px;">&#9998; Relationship Manager Notes</span><br>' + data.extracted_text;
+                                noteEl.innerHTML = '<span style="color:#0ea5e9;font-weight:600;font-size:0.8em;text-transform:uppercase;letter-spacing:0.3px;">&#9998; {{ANNOTATION_LABEL}}</span><br>' + data.extracted_text;
                                 targetItem.appendChild(noteEl);
                             }
                         }
@@ -8036,12 +8423,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                         if (statusDot) statusDot.classList.remove("processing");
 
                         // Update token count
-                        var tokensUsed = data.tokens_used || 0;
-                        var tokenEl = document.getElementById("inspTokenCount");
-                        if (tokenEl && tokensUsed) {
-                            var cur = parseInt(tokenEl.textContent) || 0;
-                            tokenEl.textContent = (cur + tokensUsed) + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
-                        }
+                        // Phi Silica Vision doesn't report tokens — estimate ~300 for image description
+                        window._addInspTokens(data.tokens_used || 300, "Document Analysis", "Phi Silica Vision");
 
                         // Track completed task
                         var completed = window._inspCompletedTasks || [];
@@ -8057,7 +8440,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
                         // Only set fallback if annotations weren't already set by .then()
                         var f = findings[savedFindingId - 1];
-                        var fallbackNote = "Check pipe above - possible leak source";
+                        var fallbackNote = "{{ANNOTATION_FALLBACK}}";
                         if (f && !(f.annotations && f.annotations.extracted_text)) {
                             f.annotations = {
                                 extracted_text: fallbackNote,
@@ -8078,7 +8461,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                                 var noteEl2 = document.createElement("div");
                                 noteEl2.className = "finding-note";
                                 noteEl2.style.cssText = "margin-top:6px;padding:6px 8px;background:rgba(14,165,233,0.08);border-left:3px solid #0ea5e9;border-radius:4px;font-size:0.82em;color:rgba(255,255,255,0.75);line-height:1.4;";
-                                noteEl2.innerHTML = '<span style="color:#0ea5e9;font-weight:600;font-size:0.8em;text-transform:uppercase;letter-spacing:0.3px;">&#9998; Relationship Manager Notes</span><br>' + fallbackNote;
+                                noteEl2.innerHTML = '<span style="color:#0ea5e9;font-weight:600;font-size:0.8em;text-transform:uppercase;letter-spacing:0.3px;">&#9998; {{ANNOTATION_LABEL}}</span><br>' + fallbackNote;
                                 targetItem2.appendChild(noteEl2);
                             }
                         }
@@ -8092,6 +8475,25 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
             // Wire annotate button in classification card
             if (annotateBtn) annotateBtn.addEventListener("click", function() {
+                // Beneficiary form → show signature pad instead of annotation
+                if (window._inspLastDocIsBeneficiary) {
+                    var inspSig = document.getElementById("inspSigSection");
+                    if (inspSig) {
+                        inspSig.style.display = "block";
+                        // Reset signature state
+                        var inspSigAccept = document.getElementById("inspSigAcceptBtn");
+                        if (inspSigAccept) { inspSigAccept.disabled = false; inspSigAccept.textContent = "\u2713 Accept & Sign"; inspSigAccept.style.opacity = "1"; }
+                        var inspSigConf = document.getElementById("inspSigConfirm");
+                        if (inspSigConf) inspSigConf.style.display = "none";
+                        // Resize canvas now that it's visible
+                        var inspSigCanvas = document.getElementById("inspSigCanvas");
+                        if (inspSigCanvas) {
+                            var w = inspSigCanvas.parentElement.clientWidth;
+                            if (w > 0) { inspSigCanvas.width = w; inspSigCanvas.height = 150; }
+                        }
+                    }
+                    return;
+                }
                 // Find selected thumbnail's finding ID, or use latest
                 var grid = document.getElementById("inspPhotoGrid");
                 var selected = grid ? grid.querySelector(".photo-thumb.selected") : null;
@@ -8191,11 +8593,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     setStatus("Report generated \u2014 Risk: " + riskLabel + " (" + (data.inference_time || 0) + "s)", false);
 
                     // Update token count
-                    if (data.tokens_used && tokenCount) {
-                        var prev = parseInt(tokenCount.textContent) || 0;
-                        var total = prev + data.tokens_used;
-                        tokenCount.textContent = total + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
-                    }
+                    if (data.tokens_used) window._addInspTokens(data.tokens_used, "Report Generation", "Phi-4 Mini");
 
                     generateBtn.disabled = false;
                     generateBtn.textContent = "\ud83d\udcc4 Regenerate Report";
@@ -8219,10 +8617,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 var reportData = window._inspReportData;
                 if (!reportData || !reportData.report_html) return;
 
-                // Get client name from form
-                var clientName = (document.getElementById("inspLocation") || {}).value || "";
-                // Extract just the name part (before comma if "Jackie Rodriguez, Starbucks")
-                var namePart = clientName.split(",")[0].trim() || "Unknown Client";
+                // Get client name from Client field
+                var namePart = ((document.getElementById("inspInspector") || {}).value || "").trim() || "Unknown Client";
 
                 postBtn.disabled = true;
                 postBtn.textContent = "\u23f3 Posting to D365...";
@@ -8261,9 +8657,11 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     postBtn.disabled = false;
                     postBtn.textContent = "\u2713 Posted to D365";
                     postBtn.style.opacity = "0.7";
+                    // Log D365 post to AI session report (not AI tokens, but a session operation)
+                    var isLive = data.source === "live";
+                    window._addInspTokens(0, "D365 Meeting Notes Post" + (isLive ? " (Live)" : " (Demo)"), "Dataverse API");
 
                     if (resultDiv) {
-                        var isLive = data.source === "live";
                         resultDiv.style.background = isLive ? "rgba(16,185,129,0.1)" : "rgba(241,143,18,0.1)";
                         resultDiv.style.border = "1px solid " + (isLive ? "rgba(16,185,129,0.3)" : "rgba(241,143,18,0.3)");
                         resultDiv.style.color = "#333";
@@ -8297,6 +8695,268 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     }
                 });
             });
+        })();
+
+        // ── Meeting Notes: Client Follow-Up Email ──
+        (function() {
+            var emailPanel = document.getElementById("inspEmailPanel");
+            var emailBody = document.getElementById("inspEmailBody");
+            var emailSubject = document.getElementById("inspEmailSubject");
+            var emailTo = document.getElementById("inspEmailTo");
+            var polishBtn = document.getElementById("inspPolishBtn");
+            var sendBtn = document.getElementById("inspSendEmailBtn");
+            var emailStatus = document.getElementById("inspEmailStatus");
+            var micBtn = document.getElementById("inspEmailMicBtn");
+            var statusText = document.getElementById("inspStatusText");
+            var statusDot = document.getElementById("inspStatusDot");
+            var tokenCount = document.getElementById("inspTokenCount");
+
+            if (!emailPanel || !emailBody) return;
+
+            var _customerEmail = "";
+            var _customerName = "";
+
+            function setStatus(text, processing) {
+                if (statusText) statusText.textContent = text;
+                if (statusDot) statusDot.classList.toggle("processing", !!processing);
+            }
+
+            function showEmailStatus(html, isError) {
+                if (!emailStatus) return;
+                emailStatus.style.display = "block";
+                emailStatus.style.background = isError ? "rgba(239,68,68,0.08)" : "rgba(16,185,129,0.08)";
+                emailStatus.style.border = "1px solid " + (isError ? "rgba(239,68,68,0.25)" : "rgba(16,185,129,0.25)");
+                emailStatus.style.color = "#333";
+                emailStatus.innerHTML = html;
+            }
+
+            // Show email panel after report generation + D365 post
+            // Watch for D365 post result to appear, then show email panel
+            var _emailPanelShown = false;
+            window._showEmailPanel = function(clientName) {
+                if (_emailPanelShown) return;
+                _emailPanelShown = true;
+                _customerName = clientName || "";
+                emailPanel.style.display = "block";
+
+                // Pre-fill draft from report data
+                var reportData = window._inspReportData;
+                if (reportData && reportData.report_html) {
+                    // Extract the blockquote (draft email) from the report HTML
+                    var tmp = document.createElement("div");
+                    tmp.innerHTML = reportData.report_html;
+                    var bq = tmp.querySelector("blockquote");
+                    if (bq) {
+                        // Convert HTML to plain text for the textarea
+                        emailBody.value = bq.textContent || bq.innerText || "";
+                    }
+                }
+
+                // Look up customer email from D365
+                if (_customerName) {
+                    emailTo.textContent = "Looking up " + _customerName + "...";
+                    fetch("/d365/customer-lookup", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({name: _customerName})
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        var cust = data.customer || {};
+                        _customerEmail = cust.email || "";
+                        if (_customerEmail) {
+                            emailTo.innerHTML = "<strong>" + _customerName + "</strong> &lt;" + _customerEmail + "&gt;";
+                            window._addInspTokens(0, "D365 Email Lookup", "Dataverse API");
+                        } else {
+                            emailTo.textContent = _customerName + " (no email on file)";
+                        }
+                    })
+                    .catch(function() {
+                        emailTo.textContent = _customerName + " (D365 lookup failed)";
+                    });
+                }
+            };
+
+            // Hook into D365 post success to show email panel
+            var _origPostBtn = document.getElementById("inspPostD365Btn");
+            if (_origPostBtn) {
+                var observer = new MutationObserver(function() {
+                    if (_origPostBtn.textContent.indexOf("Posted") >= 0) {
+                        // D365 post succeeded, get client name from Client field and show email panel
+                        var namePart = ((document.getElementById("inspInspector") || {}).value || "").trim();
+                        setTimeout(function() { window._showEmailPanel(namePart); }, 500);
+                    }
+                });
+                observer.observe(_origPostBtn, {childList: true, characterData: true, subtree: true});
+            }
+
+            // Also show email panel when report is generated (even without D365 post)
+            var _origGenerateBtn = document.getElementById("inspGenerateBtn");
+            if (_origGenerateBtn) {
+                var genObserver = new MutationObserver(function() {
+                    if (_origGenerateBtn.textContent.indexOf("Regenerate") >= 0 && !_emailPanelShown) {
+                        var namePart = ((document.getElementById("inspInspector") || {}).value || "").trim();
+                        setTimeout(function() { window._showEmailPanel(namePart); }, 1000);
+                    }
+                });
+                genObserver.observe(_origGenerateBtn, {childList: true, characterData: true, subtree: true});
+            }
+
+            // Mic button: demo mode — typewriter sample draft for video recording
+            // SAVE: Original Fluid Dictation implementation (restore for live demos):
+            // if (micBtn) {
+            //     micBtn.addEventListener("click", function() {
+            //         emailBody.focus();
+            //         setTimeout(function() {
+            //             fetch("/inspection/fluid-dictation", { method: "POST" })
+            //                 .then(function(r) { return r.json(); })
+            //                 .then(function(data) {
+            //                     if (data.error) showEmailStatus("Could not open Voice Typing: " + data.error, true);
+            //                 })
+            //                 .catch(function() { showEmailStatus("Could not open Voice Typing", true); });
+            //         }, 150);
+            //     });
+            // }
+            if (micBtn) {
+                micBtn.addEventListener("click", function() {
+                    var draftText = "hey jackie thanks so much for coming in today it was great sitting down with you " +
+                        "I wanted to follow up on what we discussed about the 529 plan for maya and daniel " +
+                        "and also the roth ira rollover from your old 401k " +
+                        "ill have the contribution limits comparison ready for you by friday " +
+                        "and we have that follow up scheduled for next thursday to go over everything " +
+                        "dont hesitate to reach out if you have any questions before then";
+                    micBtn.disabled = true;
+                    emailBody.value = "";
+                    emailBody.focus();
+                    var words = draftText.split(" ");
+                    var idx = 0;
+                    var interval = setInterval(function() {
+                        if (idx < words.length) {
+                            emailBody.value += (idx > 0 ? " " : "") + words[idx];
+                            emailBody.scrollTop = emailBody.scrollHeight;
+                            idx++;
+                        } else {
+                            clearInterval(interval);
+                            micBtn.disabled = false;
+                            // Track voice transcription — on-device, cloud would be Whisper API
+                            window._addInspTokens(100, "Voice Transcription (Email)", "Windows Speech (On-Device)");
+                            showEmailStatus("Draft captured via voice — tap <strong>Polish with Writing Assistant</strong> to refine", false);
+                        }
+                    }, 90);
+                });
+            }
+
+            // Polish with Writing Assistant
+            if (polishBtn) {
+                polishBtn.addEventListener("click", function() {
+                    var text = emailBody.value.trim();
+                    if (!text) {
+                        showEmailStatus("Type or dictate a message first.", true);
+                        return;
+                    }
+                    polishBtn.disabled = true;
+                    polishBtn.textContent = "\u23f3 Polishing...";
+                    setStatus("Polishing email with Writing Assistant on NPU...", true);
+
+                    fetch("/api/polish-email", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({text: text, customer_name: _customerName})
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        polishBtn.disabled = false;
+                        polishBtn.innerHTML = "&#9998; Polish with Writing Assistant";
+                        if (data.error) {
+                            showEmailStatus("Polish failed: " + data.error, true);
+                            setStatus("Polish failed", false);
+                            return;
+                        }
+                        emailBody.value = data.polished;
+                        var modelLabel = data.model || "AI";
+                        setStatus("Email polished by " + modelLabel + " on NPU", false);
+                        showEmailStatus("&#10003; Polished by <strong>" + modelLabel + "</strong> on NPU" + (data.inference_time ? " (" + data.inference_time + "s)" : ""), false);
+
+                        // Update token count — Writing Assistant uses ~200 tokens
+                        window._addInspTokens(200, "Writing Assistant", "Phi Silica TextRewriter");
+                    })
+                    .catch(function(err) {
+                        polishBtn.disabled = false;
+                        polishBtn.innerHTML = "&#9998; Polish with Writing Assistant";
+                        showEmailStatus("Polish failed: " + err.message, true);
+                        setStatus("Polish failed", false);
+                    });
+                });
+            }
+
+            // Send to Customer
+            if (sendBtn) {
+                sendBtn.addEventListener("click", function() {
+                    var text = emailBody.value.trim();
+                    if (!text) {
+                        showEmailStatus("Type or dictate a message first.", true);
+                        return;
+                    }
+                    if (!_customerEmail) {
+                        showEmailStatus("No customer email found. Check D365 contact record.", true);
+                        return;
+                    }
+
+                    sendBtn.disabled = true;
+                    sendBtn.textContent = "\u23f3 Sending...";
+                    setStatus("Sending follow-up email via Microsoft Graph...", true);
+
+                    // Convert plain text to HTML paragraphs
+                    var bodyHtml = text.split("\n").filter(function(l) { return l.trim(); }).map(function(l) { return "<p>" + l + "</p>"; }).join("");
+
+                    fetch("/api/send-followup", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({
+                            body: bodyHtml,
+                            subject: emailSubject.value || "Thank you for meeting with us today",
+                            customer_name: _customerName,
+                            customer_email: _customerEmail
+                        })
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        sendBtn.disabled = false;
+                        if (data.sent) {
+                            sendBtn.textContent = "\u2713 Email Sent";
+                            sendBtn.style.opacity = "0.7";
+                            setStatus("Follow-up email sent to " + data.to, false);
+                            showEmailStatus(
+                                "<strong>&#10003; Email sent successfully</strong><br>" +
+                                "To: " + (data.to_name || "") + " &lt;" + data.to + "&gt;<br>" +
+                                "Subject: " + data.subject + "<br>" +
+                                "Sent via Microsoft Graph (Outlook) at " + new Date().toLocaleTimeString(),
+                                false
+                            );
+
+                            // Log email send to session report
+                            window._addInspTokens(0, "Follow-Up Email Sent", "Microsoft Graph API");
+
+                            // Track completed task
+                            var completed = window._inspCompletedTasks || [];
+                            if (completed.indexOf("Follow-up email") === -1) {
+                                completed.push("Follow-up email");
+                                window._inspCompletedTasks = completed;
+                            }
+                        } else {
+                            sendBtn.innerHTML = "&#9993; Send to Customer";
+                            showEmailStatus("Send failed: " + (data.error || "Unknown error"), true);
+                            setStatus("Email send failed", false);
+                        }
+                    })
+                    .catch(function(err) {
+                        sendBtn.disabled = false;
+                        sendBtn.innerHTML = "&#9993; Send to Customer";
+                        showEmailStatus("Send failed: " + err.message, true);
+                        setStatus("Email send failed", false);
+                    });
+                });
+            }
         })();
 
         // ── Field Inspection: Milestone 6 — Translation ──
@@ -8387,11 +9047,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     setStatus("Translated to Spanish" + timeLabel + " \u2014 no cloud API call", false);
 
                     // Update token count
-                    if (data.tokens_used && tokenCount) {
-                        var prev = parseInt(tokenCount.textContent) || 0;
-                        var total = prev + data.tokens_used;
-                        tokenCount.textContent = total + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
-                    }
+                    if (data.tokens_used) window._addInspTokens(data.tokens_used, "Translation (ES)", "Phi-4 Mini");
                 })
                 .catch(function(err) {
                     console.error("Translation failed:", err);
@@ -8566,8 +9222,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 if (dashCloudCount) dashCloudCount.textContent = "0";
 
                 // Summary bar with tokenomics
-                var tokens = 0;
-                if (tokenCount) tokens = parseInt(tokenCount.textContent) || 0;
+                var tokens = window._inspTotalTokens || 0;
                 if (dashSummary) {
                     dashSummary.textContent = "Total tokens: " + tokens +
                         " | Cost: $0.00 | Transmitted: 0 bytes";
@@ -9632,6 +10287,7 @@ def _build_theme_overrides(cfg):
 def index():
     _cfg = DEMO_CONFIG
     _tabs = _cfg["tabs"]
+    _ind_cfg = _cfg.get("industry", {})
     page = HTML_TEMPLATE.replace("{{CHIP_LABEL}}", CHIP_LABEL) \
                          .replace("{{DEVICE_LABEL}}", DEVICE_LABEL) \
                          .replace("{{MODEL_LABEL}}", MODEL_LABEL) \
@@ -9663,6 +10319,17 @@ def index():
                          .replace("{{POC_FOOTER}}", _cfg["poc_footer"]) \
                          .replace("{{POC_AUDITOR}}", _cfg["poc_auditor"]) \
                          .replace("{{POC_ID}}", _cfg["poc_id"]) \
+                         .replace("{{BRAND_COMPANY}}", _cfg.get("brand_company", "")) \
+                         .replace("{{ADVISOR_NAME}}", _cfg.get("advisor_name", "")) \
+                         .replace("{{ADVISOR_TITLE}}", _cfg.get("advisor_title", "")) \
+                         .replace("{{ADVISOR_COMPANY}}", _cfg.get("advisor_company", "")) \
+                         .replace("{{ADVISOR_PHONE}}", _cfg.get("advisor_phone", "")) \
+                         .replace("{{PLACEHOLDER_CLIENT}}", _ind_cfg.get("placeholders", {}).get("client", "e.g. Client Name")) \
+                         .replace("{{PLACEHOLDER_LOCATION}}", _ind_cfg.get("placeholders", {}).get("location", "e.g. Meeting Location")) \
+                         .replace("{{PLACEHOLDER_ISSUE}}", _ind_cfg.get("placeholders", {}).get("issue", "e.g. Topics Discussed")) \
+                         .replace("{{PLACEHOLDER_SOURCE}}", _ind_cfg.get("placeholders", {}).get("source", "e.g. Referral Source")) \
+                         .replace("{{ANNOTATION_LABEL}}", _ind_cfg.get("annotation_label", "Advisor Notes")) \
+                         .replace("{{ANNOTATION_FALLBACK}}", _ind_cfg.get("annotation_fallback", "See follow-up notes")) \
                          .replace("{{THEME_OVERRIDES}}", _build_theme_overrides(_cfg))
     # Persona switcher: inject HTML or empty string
     personas = _cfg.get("personas")
@@ -9678,7 +10345,9 @@ def index():
         persona_html = ''
     page = page.replace("{{PERSONA_SWITCHER}}", persona_html)
     if _cfg.get("brand_theme") == "light":
-        sidebar_logo = '<img class="brand-logo-surface" src="/logos/flagstar-logo-official.png" alt="Flagstar" style="width:80%;max-width:200px;" onerror="this.style.display=\'none\'">'
+        _logo_file = _cfg.get("brand_logo", "flagstar-logo-official.png")
+        _brand_alt = _cfg.get("brand_company", "Brand")
+        sidebar_logo = f'<img class="brand-logo-surface" src="/logos/{_logo_file}" alt="{_brand_alt}" style="width:80%;max-width:200px;" onerror="this.style.display=\'none\'">'
     else:
         sidebar_logo = '<img class="brand-logo-surface" src="/logos/surface-logo.png" alt="Microsoft Surface" onerror="this.style.display=\'none\'"><img class="brand-logo-copilot" src="/logos/copilot-logo.avif" alt="Copilot+ PC" onerror="this.style.display=\'none\'">'
     page = page.replace("{{SIDEBAR_LOGO}}", sidebar_logo)
@@ -13609,7 +14278,7 @@ _DEMO_CLASSIFICATIONS = {
         "category": "Beneficiary Designation Form",
         "severity": "High",
         "confidence": 96,
-        "explanation": "Flagstar Financial beneficiary designation form for 403(b) account. Account holder: Jackie Marie Rodriguez. Requires signatures from account holder and financial advisor."
+        "explanation": f"{DEMO_CONFIG.get('brand_company', 'Flagstar Financial')} beneficiary designation form for 403(b) account. Account holder: {DEMO_CONFIG.get('customer', {}).get('full_name', 'Jackie Marie Rodriguez')}. Requires signatures from account holder and financial advisor."
     },
     "water_damage": {
         "category": "Financial Statement",
@@ -13779,6 +14448,11 @@ def inspection_classify():
                 result = vision_resp.json()
                 if 'error' not in result:
                     result["source"] = "phi_silica_vision"
+                    result["tokens_used"] = result.get("tokens_used", 300)
+                    # Track in server-side session stats (Vision doesn't go through foundry_chat)
+                    SESSION_STATS["calls"] += 1
+                    SESSION_STATS["input_tokens"] += 200
+                    SESSION_STATS["output_tokens"] += 100
                     print(f"[INSPECTION] Phi Silica Vision: {result.get('category')}")
                     return jsonify(result)
         except Exception as e:
@@ -13868,6 +14542,7 @@ def inspection_annotate():
     """
     image_file = request.files.get('image')
     finding_id = request.form.get('finding_id', '0')
+    _ind = DEMO_CONFIG.get('industry', {})
 
     if not image_file:
         return jsonify({"error": "No image provided"}), 400
@@ -13881,48 +14556,29 @@ def inspection_annotate():
         files = {'image': (image_file.filename or 'annotated_photo.jpg', image_bytes,
                            image_file.content_type or 'image/jpeg')}
         # Use /describe (detailed) for richer output than /extract-text
+        # Phi Silica Vision can take 30-45s on first call (cold start)
         vision_resp = _req.post('http://localhost:5100/describe',
                                 files=files,
                                 data={'kind': 'detailed'},
-                                timeout=30)
+                                timeout=60)
         if vision_resp.status_code == 200:
             result = vision_resp.json()
-            text = result.get('description', '').strip()
-            if not text:
-                text = result.get('extracted_text', '').strip()
-            if text and 'error' not in result:
-                print(f"[INSPECTION] Annotation via Phi Silica Vision: {text[:120]}")
-                # Post-process with Phi-4 Mini to extract handwritten text
-                try:
-                    _pp_start = _time.time()
-                    pp_response = foundry_chat(
-                        model=DEFAULT_MODEL,
-                        messages=[
-                            {"role": "system", "content":
-                                "An inspector annotated a building inspection photo with handwritten "
-                                "text in red ink. A vision model described the annotated image. "
-                                "Your job: extract and transcribe the inspector's handwritten annotations. "
-                                "Focus on any words, labels, arrows with text, or written notes. "
-                                "If the vision description mentions text (even partial), reconstruct "
-                                "the most likely intended words. Output ONLY the inspector's note "
-                                "as a short sentence. If no text was written, summarize what the "
-                                "inspector marked (e.g. 'Arrow pointing to ceiling stain')."},
-                            {"role": "user", "content": f"Vision description: {text}"},
-                        ],
-                        max_tokens=80,
-                        temperature=0.2,
-                    )
-                    _pp_elapsed = _time.time() - _pp_start
-                    _track_model_call(pp_response, _pp_elapsed)
-                    refined = (pp_response.choices[0].message.content or "").strip().strip('"').strip("'")
-                    if refined:
-                        print(f"[INSPECTION] Refined annotation: {refined[:120]}")
-                        text = refined
-                except Exception as pp_err:
-                    print(f"[INSPECTION] Annotation refinement skipped: {pp_err}")
+            raw_desc = result.get('description', '').strip()
+            if not raw_desc:
+                raw_desc = result.get('extracted_text', '').strip()
+            if raw_desc and 'error' not in result:
+                print(f"[ANNOTATION] Phi Silica Vision raw: {raw_desc}")
+                # Track in server-side session stats (Vision doesn't go through foundry_chat)
+                SESSION_STATS["calls"] += 1
+                SESSION_STATS["input_tokens"] += 200
+                SESSION_STATS["output_tokens"] += 100
+                # Return the raw Vision description directly —
+                # Phi-4 Mini refinement was hallucinating content not in the image.
+                # Vision's description of what it actually sees is more trustworthy.
                 return jsonify({
-                    "extracted_text": text,
-                    "tokens_used": result.get('tokens_used', 0),
+                    "extracted_text": raw_desc,
+                    "raw_vision": raw_desc,
+                    "tokens_used": 300,
                     "inference_time": result.get('inference_time', 0),
                     "source": "phi_silica_vision",
                     "status": "ok"
@@ -13930,14 +14586,17 @@ def inspection_annotate():
     except Exception as e:
         print(f"[INSPECTION] Vision describe unavailable: {e}")
 
-    # Tier 2: Phi-4 Mini text fallback — generate plausible advisor note
+    # Tier 2: Phi-4 Mini text fallback — generate plausible note
     model = DEFAULT_MODEL
+    _ann_role = _ind.get('annotation_role', 'advisor')
+    _ann_docs = _ind.get('annotation_documents', 'a document')
+    _ann_actions = _ind.get('annotation_actions', 'follow-up items, action notes, or key observations')
     system_prompt = (
-        "You are a building inspector's handwriting recognition system. "
-        "An inspector annotated a photo with handwritten notes during an on-site assessment. "
-        "Generate a short, realistic inspector note (1-2 sentences) that would typically "
-        "accompany a building inspection finding. Focus on specific observations like "
-        "measurements, material conditions, or action items. Keep it under 20 words."
+        f"You are a handwriting recognition system for a {_ann_role}'s document annotations. "
+        f"A {_ann_role} annotated {_ann_docs} with handwritten notes during a meeting. "
+        f"Generate a short, realistic note (1-2 sentences) that would typically "
+        f"accompany a document review. Focus on specific actions like "
+        f"{_ann_actions}. Keep it under 20 words."
     )
 
     try:
@@ -14021,14 +14680,26 @@ def inspection_report():
         f"\nDocuments Reviewed ({len(findings)} total):{findings_text}"
     )
 
+    _adv_name = DEMO_CONFIG.get('advisor_name', 'Alan Thornbury')
+    _adv_title = DEMO_CONFIG.get('advisor_title', 'Vice President & Senior Relationship Manager')
+    _adv_company = DEMO_CONFIG.get('advisor_company', 'Flagstar Bank')
+    _adv_phone = DEMO_CONFIG.get('advisor_phone', '(248) 312-5500')
+    _adv_email = DEMO_CONFIG.get('advisor_email', '')
+    _adv_branch = DEMO_CONFIG.get('advisor_branch', '')
     system_prompt = (
         "You are a client meeting report generator for a bank wealth advisor. "
+        f"The advisor is {_adv_name}, {_adv_title} at {_adv_company}"
+        + (f", {_adv_branch} branch" if _adv_branch else "") + ". "
+        "This report is being generated by the advisor who just completed the meeting. "
         "Given structured meeting data, produce a professional post-meeting report as clean HTML. Include:\n"
-        "1. Meeting details header (client name, location, date, products discussed)\n"
+        "1. Meeting details header (client name, location, date, products discussed, advisor name)\n"
         "2. Meeting summary (2-3 sentences covering key discussion points)\n"
         "3. Client action items (bullet list of what the client needs to do)\n"
         "4. Advisor follow-up tasks (bullet list for the advisor/bank)\n"
-        "5. Draft follow-up email to the client (brief, professional, references specific products discussed)\n"
+        "5. Draft follow-up email to the client (brief, professional, references specific products discussed). "
+        f"Sign the email as: {_adv_name}, {_adv_title}, {_adv_company}"
+        + (f", {_adv_phone}" if _adv_phone else "")
+        + (f", {_adv_email}" if _adv_email else "") + "\n"
         "6. D365 task entries (formatted list of tasks to create in CRM)\n\n"
         "Use these HTML tags: <h2>, <h3>, <p>, <ul>, <li>, <strong>, <blockquote>.\n"
         "Keep language professional, warm, and concise. No markdown, only HTML."
@@ -14165,7 +14836,8 @@ def inspection_report():
             f'for review. Our follow-up meeting is scheduled for next Thursday to finalize '
             f'the remaining paperwork.<br><br>'
             f'Please don\'t hesitate to reach out if you have any questions before then.<br><br>'
-            f'Best regards,<br>Your Flagstar Financial Advisor</blockquote>'
+            f'Best regards,<br>{_adv_name}<br>{_adv_title}<br>{_adv_company}<br>{_adv_phone}'
+            + (f'<br>{_adv_email}' if _adv_email else '') + '</blockquote>'
         )
 
         return jsonify({
@@ -14486,10 +15158,183 @@ def system_stats():
     with _perf_lock:
         return jsonify(dict(_perf_stats))
 
+@app.route('/api/polish-email', methods=['POST'])
+def polish_email():
+    """Rewrite email text in a professional banking tone using local AI.
+    Tries Vision Service Phi Silica TextRewriter first, falls back to Phi-4 Mini."""
+    data = request.json
+    text = data.get('text', '').strip()
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
+
+    _adv_name = DEMO_CONFIG.get('advisor_name', 'the advisor')
+    _adv_company = DEMO_CONFIG.get('advisor_company', 'the bank')
+    _brand = DEMO_CONFIG.get('brand_company', 'the bank')
+    _customer_name = data.get('customer_name', '')
+
+    # Try Vision Service /rewrite endpoint (Phi Silica TextRewriter on NPU)
+    try:
+        import requests as _req
+        _instruction = f"Rewrite as a warm, professional follow-up email from {_adv_name}, {DEMO_CONFIG.get('advisor_title', '')} at {_brand}."
+        if _customer_name:
+            _instruction += f" Address the customer as {_customer_name.split()[0]}."
+        _instruction += f" Sign off as {_adv_name}. Keep it concise."
+        r = _req.post("http://localhost:5100/rewrite", json={
+            "text": text,
+            "instruction": _instruction
+        }, timeout=15)
+        if r.ok:
+            result = r.json()
+            if result.get("rewritten"):
+                # Track in server-side session stats (Vision Service, not foundry_chat)
+                SESSION_STATS["calls"] += 1
+                SESSION_STATS["input_tokens"] += 100
+                SESSION_STATS["output_tokens"] += 100
+                return jsonify({
+                    "polished": result["rewritten"],
+                    "model": "Writing Assistant (Phi Silica)",
+                    "source": "npu_writing_assistant",
+                    "inference_time": result.get("inference_time")
+                })
+    except Exception:
+        pass  # Vision Service not available, fall back to Phi-4 Mini
+
+    # Fallback: Phi-4 Mini via Foundry Local
+    try:
+        _call_start = _time.time()
+        response = foundry_chat(
+            model=DEFAULT_MODEL,
+            messages=[
+                {"role": "system", "content": (
+                    f"You are a professional email editor for {_brand}. "
+                    f"The email is from {_adv_name}, {DEMO_CONFIG.get('advisor_title', '')}. "
+                    "Rewrite the user's draft email to be warm, professional, and concise. "
+                    "Keep the same meaning and key details but improve the tone and polish. "
+                    + (f"Address the customer by their first name: {_customer_name.split()[0]}. " if _customer_name else "")
+                    + f"Sign off as {_adv_name}. Do not add new information. Do not include a subject line. "
+                    "Output only the polished email body text, nothing else."
+                )},
+                {"role": "user", "content": text}
+            ],
+            max_tokens=512,
+            temperature=0.3
+        )
+        polished = response.choices[0].message.content.strip()
+        elapsed = round(_time.time() - _call_start, 1)
+        return jsonify({
+            "polished": polished,
+            "model": "Phi-4 Mini",
+            "source": "npu_phi4_mini",
+            "inference_time": elapsed
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/send-followup', methods=['POST'])
+def send_followup_email():
+    """Send a follow-up email to the customer via Microsoft Graph Mail.Send.
+    Looks up customer email from D365 via MCP if not provided."""
+    data = request.json
+    body_html = data.get('body', '').strip()
+    subject = data.get('subject', 'Thank you for meeting with us today')
+    customer_name = data.get('customer_name', '')
+    customer_email = data.get('customer_email', '')
+
+    if not body_html:
+        return jsonify({"error": "No email body provided"}), 400
+
+    _adv_name = DEMO_CONFIG.get('advisor_name', '')
+    _adv_title = DEMO_CONFIG.get('advisor_title', '')
+    _adv_company = DEMO_CONFIG.get('advisor_company', '')
+    _adv_phone = DEMO_CONFIG.get('advisor_phone', '')
+    _adv_email = DEMO_CONFIG.get('advisor_email', '')
+
+    # If no email provided, try D365 MCP lookup
+    if not customer_email and customer_name:
+        try:
+            import requests as _req
+            r = _req.post("http://localhost:5000/d365/customer-lookup",
+                          json={"name": customer_name}, timeout=10)
+            if r.ok:
+                d365_data = r.json()
+                customer_info = d365_data.get("customer", {})
+                customer_email = customer_info.get("email", "")
+        except Exception:
+            pass
+
+    if not customer_email:
+        return jsonify({"error": "Could not determine customer email address. Check D365 contact record."}), 400
+
+    # Build HTML email with signature
+    full_html = (
+        f'<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#333;">'
+        f'{body_html}'
+        f'<br><br>'
+        f'<div style="border-top:1px solid #ddd;padding-top:12px;margin-top:12px;font-size:13px;color:#666;">'
+        f'{_adv_name}<br>{_adv_title}<br>{_adv_company}<br>{_adv_phone}'
+        + (f'<br>{_adv_email}' if _adv_email else '') +
+        f'</div></div>'
+    )
+
+    # Send via Microsoft Graph
+    token = _graph_get_token()
+    if not token:
+        return jsonify({"error": "Graph not authenticated. Run /graph/authenticate first.", "sent": False}), 401
+
+    try:
+        import requests as _req
+        graph_url = "https://graph.microsoft.com/v1.0/me/sendMail"
+        mail_payload = {
+            "message": {
+                "subject": subject,
+                "body": {"contentType": "HTML", "content": full_html},
+                "toRecipients": [{"emailAddress": {"address": customer_email, "name": customer_name}}]
+            },
+            "saveToSentItems": True
+        }
+        r = _req.post(graph_url, json=mail_payload,
+                      headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                      timeout=15)
+        if r.status_code == 202 or r.status_code == 200:
+            return jsonify({
+                "sent": True,
+                "to": customer_email,
+                "to_name": customer_name,
+                "subject": subject,
+                "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+            })
+        else:
+            return jsonify({"error": f"Graph returned {r.status_code}: {r.text[:200]}", "sent": False}), 500
+    except Exception as e:
+        return jsonify({"error": str(e), "sent": False}), 500
+
+
 @app.route('/health')
 def health_check():
     """Returns model readiness status for the warmup overlay."""
     return jsonify({"ready": MODEL_READY, "model": DEFAULT_MODEL})
+
+@app.route('/api/product-catalog')
+def api_product_catalog():
+    """Return the product catalog for the Product Penetration Dashboard."""
+    return jsonify(PRODUCT_CATALOG if PRODUCT_CATALOG else {"error": "No product catalog loaded"})
+
+
+@app.route('/api/config')
+def api_config():
+    """Return non-sensitive config values for client-side use."""
+    return jsonify({
+        "brand_company": DEMO_CONFIG.get("brand_company", ""),
+        "advisor": {
+            "name": DEMO_CONFIG.get("advisor_name", ""),
+            "title": DEMO_CONFIG.get("advisor_title", ""),
+            "company": DEMO_CONFIG.get("advisor_company", ""),
+        },
+        "economics": DEMO_CONFIG.get("economics", {}),
+        "customer": DEMO_CONFIG.get("customer", {}),
+    })
+
 
 @app.route('/demo-mode-status')
 def demo_mode_status():

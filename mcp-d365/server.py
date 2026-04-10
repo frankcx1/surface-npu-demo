@@ -19,7 +19,11 @@ import time
 import logging
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP
+    _HAS_MCP = True
+except ImportError:
+    _HAS_MCP = False
 
 # ---------------------------------------------------------------------------
 # Configuration -- swap these for different customers/tenants
@@ -147,13 +151,18 @@ def _api_post(path: str, payload: dict) -> dict | None:
 # ---------------------------------------------------------------------------
 # MCP Server
 # ---------------------------------------------------------------------------
-mcp = FastMCP(
-    "Dynamics 365 Banking",
-    instructions="MCP server for Dynamics 365 Dataverse. Provides tools to look up customers, check branch queues, log activities, and view recent interactions."
-)
+if _HAS_MCP:
+    mcp = FastMCP(
+        "Dynamics 365 Banking",
+        instructions="MCP server for Dynamics 365 Dataverse. Provides tools to look up customers, check branch queues, log activities, and view recent interactions."
+    )
+    _tool_decorator = mcp.tool()
+else:
+    mcp = None
+    _tool_decorator = lambda fn: fn  # no-op when imported directly by Flask
 
 
-@mcp.tool()
+@_tool_decorator
 def d365_customer_lookup(name: str) -> str:
     """Look up a customer contact in Dynamics 365 by name.
     Returns customer profile including name, email, phone, address, and account details.
@@ -205,7 +214,7 @@ def d365_customer_lookup(name: str) -> str:
     return json.dumps({"source": "live", "contacts": contacts}, indent=2)
 
 
-@mcp.tool()
+@_tool_decorator
 def d365_check_in_queue() -> str:
     """Get the current branch check-in queue from the kiosk Power App.
     Returns a list of customers currently waiting in the branch lobby.
@@ -269,7 +278,7 @@ def d365_check_in_queue() -> str:
     }, indent=2)
 
 
-@mcp.tool()
+@_tool_decorator
 def d365_log_activity(customer_name: str, note: str, activity_type: str = "task") -> str:
     """Log an activity (task or note) on a customer's D365 contact record.
     Use this when the advisor wants to log meeting notes, follow-up tasks, or any activity.
@@ -321,7 +330,7 @@ def d365_log_activity(customer_name: str, note: str, activity_type: str = "task"
     return f"Failed to log activity on {contact_name}'s record. D365 may be unreachable."
 
 
-@mcp.tool()
+@_tool_decorator
 def d365_recent_activities(customer_name: str) -> str:
     """Get recent activities and timeline entries for a customer.
     Use this when the advisor asks about recent interactions, meeting history, or account activity.
@@ -385,6 +394,9 @@ def d365_recent_activities(customer_name: str) -> str:
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    if not _HAS_MCP:
+        print("ERROR: 'mcp' package required to run as standalone server. pip install mcp")
+        sys.exit(1)
     logger.info(f"Starting MCP D365 Server")
     logger.info(f"  Org: {D365_ORG_URL}")
     logger.info(f"  Tenant: {D365_TENANT}")
