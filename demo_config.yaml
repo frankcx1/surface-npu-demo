@@ -1,58 +1,58 @@
-# demo_config.yaml - Bank of America brand configuration
-# Copy this to the app root to reskin as Bank of America
+# demo_config.yaml - Zava Financial brand configuration
+# Copy this to the app root to reskin as Zava Financial
 
 app_title: "Branch of the Future"
 app_subtitle: "Powered by Surface + On-Device AI"
 
 brand:
-  primary: "#ffffff"           # sidebar background start (clean white)
-  primary_end: "#F0F2F5"      # sidebar background end (cool light gray)
-  accent: "#012169"            # active states, links (BofA navy blue)
-  accent_rgb: "1,33,105"      # RGB for rgba() usage
-  hover: "#E31837"             # hover accent (BofA red)
+  primary: "#f7f9fb"          # sidebar background start (very light blue-gray)
+  primary_end: "#ebeff3"      # sidebar background end (Zava light gray)
+  accent: "#183D4C"           # active states, links (Zava dark slate)
+  accent_rgb: "24,61,76"      # RGB for rgba() usage
+  hover: "#9EC9D9"            # hover accent (Zava teal)
   theme: "light"
-  logo: "bofa-logo.png"
-  company_name: "Bank of America"
+  logo: "zava-logo.png"
+  company_name: "Zava Financial"
 
 advisor:
-  name: "Michael Torres"
+  name: "Sarah Chen"
   title: "Vice President & Senior Relationship Manager"
-  company: "Bank of America"
-  phone: "(704) 555-0198"
-  email: "michael.torres@bofa.com"
-  branch: "Midtown Financial Center, New York"
+  company: "Zava Financial"
+  phone: "(415) 555-0142"
+  email: "sarah.chen@zavafinancial.com"
+  branch: "Financial District, San Francisco"
 
 tabs:
   chat:
     name: "Advisor Assistant"
     sub: "Knowledge & Tools"
-    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#012169" stroke-width="1.8"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2" fill="#E31837" stroke="none"/></svg>'
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#183D4C" stroke-width="1.8"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2" fill="#9EC9D9" stroke="none"/></svg>'
   day:
     name: "Morning Briefing"
     sub: "Daily Prep"
-    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#012169" stroke-width="1.8"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="#E31837" stroke="none"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>'
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#183D4C" stroke-width="1.8"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="#9EC9D9" stroke="none"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>'
   auditor:
     name: "PII Guard"
     sub: "Compliance Check"
-    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#012169" stroke-width="1.8"><path d="M12 2L4 5v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V5L12 2z"/><path d="M9 12l2 2 4-4" stroke="#E31837" stroke-width="2"/></svg>'
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#183D4C" stroke-width="1.8"><path d="M12 2L4 5v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V5L12 2z"/><path d="M9 12l2 2 4-4" stroke="#9EC9D9" stroke-width="2"/></svg>'
   id:
     name: "ID & Check Verify"
     sub: "Scan & Deposit"
-    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#012169" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="11" r="2.5" fill="#E31837" stroke="none"/><path d="M15 9h4M15 12h3M15 15h2M5 17c0-2 1.5-3 4-3s4 1 4 3"/></svg>'
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#183D4C" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="11" r="2.5" fill="#9EC9D9" stroke="none"/><path d="M15 9h4M15 12h3M15 15h2M5 17c0-2 1.5-3 4-3s4 1 4 3"/></svg>'
   live:
     name: "Live Assist"
     sub: "Client Meeting AI"
-    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#012169" stroke-width="1.8"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><circle cx="12" cy="8" r="1.5" fill="#E31837" stroke="none"/></svg>'
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#183D4C" stroke-width="1.8"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><circle cx="12" cy="8" r="1.5" fill="#9EC9D9" stroke="none"/></svg>'
   field:
     name: "Meeting Notes"
     sub: "Post-Meeting Workflow"
-    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#012169" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/><rect x="8" y="9" width="3" height="2" rx="0.5" fill="#E31837" stroke="none"/></svg>'
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#183D4C" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/><rect x="8" y="9" width="3" height="2" rx="0.5" fill="#9EC9D9" stroke="none"/></svg>'
 
 personas:
-  - name: "Frank"
+  - name: "Marcus"
     role: "Branch Manager"
     tabs: ["auditor", "id"]
-  - name: "Jennifer"
+  - name: "Sarah"
     role: "Relationship Manager"
     tabs: ["day", "chat", "live", "field"]
 
@@ -62,9 +62,9 @@ customer:
   d365_contact_id: ""
 
 branches:
-  - name: "Midtown Financial Center"
-    city: "New York"
-    state: "NY"
+  - name: "Financial District"
+    city: "San Francisco"
+    state: "CA"
 
 poc:
   footer: "This application is a proof-of-concept demonstration of on-device AI for branch banking on Copilot+ PCs. Individual features are architectural demonstrations and are not validated for production use."
@@ -72,9 +72,9 @@ poc:
   id: "PROOF OF CONCEPT -- This is a demonstration of on-device document verification. It is not a validated identity verification system and should not be used for actual identity verification or access control."
 
 industry:
-  context: "banking"
-  annotation_role: "banking advisor"
-  annotation_documents: "financial documents"
+  context: "banking"                       # banking, insurance, field_inspection, healthcare, etc.
+  annotation_role: "banking advisor"        # who annotates documents
+  annotation_documents: "financial documents"  # what they annotate
   annotation_actions: "rollovers, transfers, beneficiary changes, account updates"
   annotation_fallback: "Rollover to Roth IRA - review tax implications"
   annotation_label: "Document Analysis"
@@ -82,9 +82,9 @@ industry:
   report_role: "client meeting report generator for a bank wealth advisor"
   placeholders:
     client: "e.g. Jackie Rodriguez"
-    location: "e.g. Midtown Financial Center, NYC"
+    location: "e.g. Starbucks Midtown Manhattan"
     issue: "e.g. 529 Plan, Roth IRA"
-    source: "e.g. Existing Client Referral"
+    source: "e.g. Existing Member Referral"
     notes: "Meeting notes will appear here..."
 
 economics:
@@ -108,7 +108,7 @@ demo_script:
   - {delay: 3500, speaker: "Advisor",  text: "You're not behind at all. Let's look at your options. Do you know the balance on that 401k?"}
   - {delay: 3500, speaker: "Customer", text: "What would you recommend, a Roth IRA or a traditional IRA for someone my age?"}
   - {delay: 4000, speaker: "Customer", text: "And honestly, the fees at my last bank were ridiculous. That's part of why I'm switching."}
-  - {delay: 3000, speaker: "Advisor",  text: "I hear that a lot. Our checking accounts have no monthly fees with qualifying direct deposit."}
+  - {delay: 3000, speaker: "Advisor",  text: "I hear that a lot. Our checking accounts have no monthly fees with direct deposit."}
   - {delay: 3500, speaker: "Customer", text: "OK that sounds reasonable. Let's go ahead and get the checking set up today."}
   - {delay: 3000, speaker: "Customer", text: "And I'd like to schedule a follow-up to go deeper on the college savings and retirement options."}
   - {delay: 3500, speaker: "Advisor",  text: "Absolutely. I'll get the checking started and we can book a follow-up for later this week."}
