@@ -1,0 +1,360 @@
+# product_catalog.yaml - Banking product definitions for cross-sell and penetration analysis
+# Used by the Product Penetration Dashboard to identify gaps and generate recommendations.
+# Customize this file for each bank customer (products, rates, bundles).
+
+categories:
+  # ── Consumer Deposit Accounts ──
+  - id: deposits
+    name: "Deposit Accounts"
+    products:
+      - id: checking_basic
+        name: "Essential Checking"
+        type: checking
+        description: "No monthly fee with qualifying direct deposit, free debit card, mobile banking"
+        monthly_fee: 0
+        min_balance: 0
+        talk_track: "I see you don't have a checking account with us yet. Our Essential Checking has no monthly fee with direct deposit and comes with mobile banking and a free debit card."
+
+      - id: checking_premium
+        name: "Preferred Checking"
+        type: checking
+        description: "Premium checking with rate boosts on savings, preferred loan pricing, waived wire fees"
+        monthly_fee: 25
+        min_balance: 25000
+        waived_with: "Combined balance of $25,000+"
+        talk_track: "With your balance levels, you'd qualify for Preferred Checking, which waives the monthly fee and gives you preferred rates on loans and CDs."
+
+      - id: savings_standard
+        name: "Savings Account"
+        type: savings
+        description: "Standard savings with competitive interest, 6 free withdrawals per month"
+        apy: 0.50
+        talk_track: "Setting up a savings account alongside your checking makes it easy to build an emergency fund with automatic transfers."
+
+      - id: savings_high_yield
+        name: "High-Yield Savings"
+        type: savings
+        description: "Above-market APY for balances above $500, no monthly fee"
+        apy: 4.25
+        min_balance: 500
+        talk_track: "You're keeping a solid balance in checking. Moving some to our High-Yield Savings at 4.25% APY could earn you over $400 a year on $10,000."
+
+      - id: money_market
+        name: "Money Market Account"
+        type: savings
+        description: "Higher-rate savings with check-writing and debit access, tiered rates"
+        apy: 4.50
+        min_balance: 2500
+        talk_track: "A Money Market gives you the flexibility of check-writing with savings-level rates. It's a good step up when your balance is above $2,500."
+
+      - id: cd_standard
+        name: "Certificate of Deposit"
+        type: cd
+        description: "Fixed-rate deposit, terms from 3 months to 5 years, FDIC insured"
+        apy_range: "3.75 - 4.80"
+        terms: ["3mo", "6mo", "12mo", "24mo", "36mo", "60mo"]
+        talk_track: "If you have funds you won't need for a while, locking in a CD rate could be a smart move. Our 12-month CD is currently at 4.80%."
+
+  # ── Credit Cards ──
+  - id: cards
+    name: "Credit Cards"
+    products:
+      - id: card_cashback
+        name: "Cash Back Card"
+        type: credit_card
+        description: "1.5% cash back on all purchases, no annual fee"
+        annual_fee: 0
+        talk_track: "I noticed you might be using another bank's card for daily purchases. Our Cash Back Card gives you 1.5% back on everything with no annual fee."
+
+      - id: card_travel
+        name: "Travel Rewards Card"
+        type: credit_card
+        description: "2X points on travel and dining, airport lounge access, $95 annual fee"
+        annual_fee: 95
+        talk_track: "If you travel regularly, our Travel Rewards Card earns 2X points on travel and dining plus airport lounge access."
+
+      - id: card_secured
+        name: "Secured Credit Card"
+        type: credit_card
+        description: "Build or rebuild credit with a refundable deposit, reports to all 3 bureaus"
+        annual_fee: 0
+        deposit_required: true
+        talk_track: "If you're looking to build credit history, our Secured Card is a great starting point. Your deposit becomes your credit limit."
+
+  # ── Consumer Lending ──
+  - id: lending
+    name: "Consumer Lending"
+    products:
+      - id: mortgage_purchase
+        name: "Home Mortgage"
+        type: mortgage
+        description: "Fixed and adjustable-rate options, conforming and jumbo, FHA/VA available"
+        rate_range: "5.875 - 6.750"
+        talk_track: "If you're thinking about buying a home, we can get you pre-qualified today. Our current 30-year fixed rate starts at 5.875%."
+
+      - id: mortgage_refi
+        name: "Mortgage Refinance"
+        type: mortgage
+        description: "Lower your rate or change your term on an existing mortgage"
+        talk_track: "If your current mortgage rate is above 6.5%, it might be worth looking at a refinance. We can run the numbers right now."
+
+      - id: heloc
+        name: "Home Equity Line of Credit"
+        type: heloc
+        description: "Revolving credit line secured by home equity, interest-only draw period"
+        rate_range: "7.50 - 9.00"
+        talk_track: "With the equity in your home, a HELOC gives you a flexible credit line for renovations, tuition, or debt consolidation at rates well below credit cards."
+
+      - id: auto_loan
+        name: "Auto Loan"
+        type: auto
+        description: "New and used vehicle financing, competitive fixed rates, up to 84 months"
+        rate_range: "4.99 - 7.49"
+        talk_track: "We offer competitive auto loan rates starting at 4.99%. If you're financing through a dealer, we can usually beat their rate."
+
+      - id: personal_loan
+        name: "Personal Loan"
+        type: personal
+        description: "Unsecured fixed-rate loan for debt consolidation, major purchases, or emergencies"
+        rate_range: "6.99 - 15.99"
+        amounts: "$2,000 - $50,000"
+        talk_track: "A personal loan can consolidate higher-rate debt into one fixed monthly payment. Rates start at 6.99% depending on your credit."
+
+  # ── Retirement and Investment ──
+  - id: retirement
+    name: "Retirement & Investment"
+    products:
+      - id: traditional_ira
+        name: "Traditional IRA"
+        type: retirement
+        description: "Tax-deductible contributions, tax-deferred growth, RMDs at 73"
+        contribution_limit: 7000
+        catch_up_50_plus: 8000
+        talk_track: "A Traditional IRA lets you deduct contributions from your taxes now, and your investments grow tax-deferred until retirement."
+
+      - id: roth_ira
+        name: "Roth IRA"
+        type: retirement
+        description: "After-tax contributions, tax-free growth and qualified withdrawals, no RMDs"
+        contribution_limit: 7000
+        catch_up_50_plus: 8000
+        income_limit_single: 161000
+        talk_track: "A Roth IRA is funded with after-tax dollars, but all your growth and withdrawals in retirement are tax-free. It's especially powerful if you expect to be in a higher tax bracket later."
+
+      - id: ira_rollover
+        name: "401(k) Rollover IRA"
+        type: retirement
+        description: "Consolidate old employer 401(k) plans into a single managed IRA"
+        talk_track: "Rolling over your old 401(k) gives you more investment choices and one place to manage everything. We can handle the transfer so it's tax-free."
+
+      - id: plan_529
+        name: "529 College Savings Plan"
+        type: education
+        description: "Tax-advantaged education savings, state tax deduction in many states, flexible use"
+        contribution_limit: 18000
+        lifetime_max: 550000
+        state_deduction: true
+        talk_track: "A 529 plan grows tax-free when used for education expenses. Michigan offers a state tax deduction on contributions. The annual limit is $18,000 per beneficiary."
+
+      - id: managed_portfolio
+        name: "Managed Investment Portfolio"
+        type: investment
+        description: "Professionally managed, diversified portfolio tailored to your goals and risk tolerance"
+        min_investment: 25000
+        aum_fee: "0.85%"
+        talk_track: "With a managed portfolio, our investment team handles the day-to-day decisions. The minimum is $25,000 and fees are 0.85% of assets under management."
+
+  # ── Protection and Insurance ──
+  - id: protection
+    name: "Protection & Insurance"
+    products:
+      - id: overdraft_protection
+        name: "Overdraft Protection"
+        type: protection
+        description: "Link savings to checking for automatic overdraft coverage, avoids NSF fees"
+        monthly_fee: 0
+        talk_track: "Linking your savings account as overdraft protection means if checking runs low, we automatically transfer to cover it. No NSF fees."
+
+      - id: id_theft_protection
+        name: "Identity Theft Protection"
+        type: protection
+        description: "Credit monitoring, dark web alerts, identity restoration services"
+        monthly_fee: 9.99
+        talk_track: "Our ID Theft Protection monitors your credit and the dark web for your personal information. It includes full restoration services if anything happens."
+
+      - id: life_insurance
+        name: "Life Insurance"
+        type: insurance_referral
+        description: "Term and whole life options through our insurance partners"
+        talk_track: "With a growing family, it's worth looking at life insurance. We work with top carriers and can get you quotes during your next visit."
+
+  # ── Digital and Convenience ──
+  - id: digital
+    name: "Digital Banking"
+    products:
+      - id: mobile_banking
+        name: "Mobile Banking App"
+        type: digital
+        description: "Full-service banking, mobile check deposit, Zelle, card controls, alerts"
+        monthly_fee: 0
+        talk_track: "Have you downloaded our mobile app? You can deposit checks, send money with Zelle, lock your card, and manage everything from your phone."
+
+      - id: bill_pay
+        name: "Online Bill Pay"
+        type: digital
+        description: "Schedule and send payments to any biller electronically"
+        monthly_fee: 0
+        talk_track: "Online Bill Pay lets you schedule all your bills in one place. No more writing checks or logging into multiple websites."
+
+  # ── Business Banking ──
+  - id: business
+    name: "Business Banking"
+    products:
+      - id: biz_checking
+        name: "Business Checking"
+        type: business_checking
+        description: "Operating account for daily business transactions, online banking, mobile deposit"
+        monthly_fee: 15
+        waived_with: "Average balance of $5,000+"
+        talk_track: "Our Business Checking keeps your personal and business finances separate, which is important for taxes and liability. Fee is waived with a $5,000 average balance."
+
+      - id: biz_line_of_credit
+        name: "Business Line of Credit"
+        type: business_lending
+        description: "Revolving credit for working capital, seasonal needs, and cash flow gaps"
+        rate_range: "7.50 - 12.00"
+        talk_track: "A business line of credit gives you flexible access to working capital. You only pay interest on what you draw."
+
+      - id: merchant_services
+        name: "Merchant Processing"
+        type: business_payments
+        description: "Accept card payments in-store, online, or on-the-go with competitive interchange rates"
+        talk_track: "If your business accepts card payments, we can usually save you on processing fees compared to third-party providers."
+
+# ── Cross-Sell Trigger Rules ──
+# These define when to recommend a product based on customer signals
+cross_sell_triggers:
+  - signal: "has_checking_no_savings"
+    description: "Customer has checking but no savings account"
+    suggest: ["savings_standard", "savings_high_yield"]
+    priority: high
+
+  - signal: "large_checking_balance"
+    description: "Checking balance consistently above $10,000"
+    suggest: ["savings_high_yield", "money_market", "cd_standard"]
+    priority: high
+
+  - signal: "no_credit_card"
+    description: "Customer has no credit card on file"
+    suggest: ["card_cashback", "card_travel"]
+    priority: medium
+
+  - signal: "high_credit_card_balance"
+    description: "Carrying balance above $5,000 on credit cards"
+    suggest: ["personal_loan", "heloc"]
+    priority: high
+
+  - signal: "no_retirement_account"
+    description: "Customer has no IRA or retirement account"
+    suggest: ["traditional_ira", "roth_ira"]
+    priority: high
+
+  - signal: "old_401k"
+    description: "Customer mentions old employer 401(k)"
+    suggest: ["ira_rollover", "managed_portfolio"]
+    priority: high
+
+  - signal: "has_children"
+    description: "Customer has dependent children"
+    suggest: ["plan_529", "life_insurance"]
+    priority: medium
+
+  - signal: "no_mobile_banking"
+    description: "Customer not enrolled in mobile banking"
+    suggest: ["mobile_banking"]
+    priority: low
+
+  - signal: "renting_home"
+    description: "Customer is renting, not a homeowner"
+    suggest: ["mortgage_purchase"]
+    priority: medium
+
+  - signal: "high_mortgage_rate"
+    description: "Customer's existing mortgage rate is above current market"
+    suggest: ["mortgage_refi"]
+    priority: medium
+
+  - signal: "owns_business"
+    description: "Customer owns or operates a business"
+    suggest: ["biz_checking", "biz_line_of_credit", "merchant_services"]
+    priority: high
+
+  - signal: "frequent_overdrafts"
+    description: "Customer has 3+ overdrafts in recent quarter"
+    suggest: ["overdraft_protection", "savings_standard"]
+    priority: high
+
+  - signal: "cd_maturing"
+    description: "Customer has a CD approaching maturity"
+    suggest: ["cd_standard", "managed_portfolio", "savings_high_yield"]
+    priority: high
+
+# ── Product Bundles ──
+bundles:
+  new_customer_starter:
+    name: "New Customer Starter"
+    products: ["checking_basic", "savings_standard", "mobile_banking", "bill_pay"]
+    incentive: "Earn $300 bonus with qualifying direct deposit within 60 days"
+
+  family_financial:
+    name: "Family Financial Package"
+    products: ["checking_basic", "savings_high_yield", "plan_529", "life_insurance"]
+    incentive: "Waived fees for 12 months plus $50 bonus per 529 account opened"
+
+  retirement_rollover:
+    name: "Retirement Rollover Package"
+    products: ["ira_rollover", "managed_portfolio", "checking_premium"]
+    incentive: "Free comprehensive financial plan ($500 value) with rollover of $50,000+"
+
+  homeowner:
+    name: "Homeowner Package"
+    products: ["checking_premium", "mortgage_purchase", "heloc"]
+    incentive: "0.25% rate discount on mortgage with auto-pay from our checking"
+
+  small_business:
+    name: "Small Business Bundle"
+    products: ["biz_checking", "biz_line_of_credit", "merchant_services"]
+    incentive: "First 6 months of merchant processing fees waived"
+
+# ── Penetration Scoring ──
+# How to grade a customer's relationship depth
+penetration_tiers:
+  - tier: "New"
+    min_products: 0
+    max_products: 1
+    color: "#ef4444"
+    action: "Immediate cross-sell opportunity"
+
+  - tier: "Developing"
+    min_products: 2
+    max_products: 3
+    color: "#f59e0b"
+    action: "Strong candidate for bundling"
+
+  - tier: "Engaged"
+    min_products: 4
+    max_products: 5
+    color: "#22c55e"
+    action: "Explore wealth and retirement"
+
+  - tier: "Primary Bank"
+    min_products: 6
+    max_products: 8
+    color: "#10b981"
+    action: "Retention focus, private banking candidate"
+
+  - tier: "Fully Banked"
+    min_products: 9
+    max_products: 99
+    color: "#6366f1"
+    action: "VIP treatment, household expansion"

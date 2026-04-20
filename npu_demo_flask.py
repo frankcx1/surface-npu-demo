@@ -92,6 +92,172 @@ def _load_product_catalog():
 
 PRODUCT_CATALOG = _load_product_catalog()
 
+
+def _match_product_recommendations(customer_data):
+    """Match a customer's D365 profile against the product catalog to find cross-sell opportunities.
+    Returns: {tier, tier_color, current_count, total_count, recommendations: [{id, name, category, priority, talk_track, reason}]}
+    """
+    if not PRODUCT_CATALOG:
+        return {"tier": "Unknown", "current_count": 0, "total_count": 0, "recommendations": []}
+
+    categories = PRODUCT_CATALOG.get("categories", [])
+    triggers = PRODUCT_CATALOG.get("cross_sell_triggers", [])
+    tiers = PRODUCT_CATALOG.get("penetration_tiers", [])
+
+    # Build flat product lookup
+    all_products = {}
+    for cat in categories:
+        for prod in cat.get("products", []):
+            all_products[prod["id"]] = {**prod, "category": cat.get("name", "")}
+    total_count = len(all_products)
+
+    # Extract customer's current products by fuzzy-matching account types
+    accounts = customer_data.get("accounts", [])
+    notes = (customer_data.get("notes", "") or "").lower()
+    account_types = [a.get("type", "").lower() for a in accounts]
+    all_text = " ".join(account_types) + " " + notes
+
+    # Map account types to product IDs
+    current_product_ids = set()
+    for pid, prod in all_products.items():
+        pname = prod["name"].lower()
+        for at in account_types:
+            if at and (pname in at or at in pname or pid.replace("_", " ") in at):
+                current_product_ids.add(pid)
+
+    current_count = len(current_product_ids)
+
+    # Determine penetration tier
+    tier_name, tier_color, tier_action = "New", "#ef4444", ""
+    for t in tiers:
+        if t["min_products"] <= current_count <= t["max_products"]:
+            tier_name = t["tier"]
+            tier_color = t.get("color", "#ef4444")
+            tier_action = t.get("action", "")
+            break
+
+    # Evaluate cross-sell trigger signals
+    signals = set()
+    has_checking = any("checking" in at for at in account_types)
+    has_savings = any("saving" in at for at in account_types)
+    has_credit_card = any("card" in at or "credit" in at for at in account_types)
+    has_retirement = any(x in all_text for x in ["ira", "401k", "retirement", "pension"])
+    has_mortgage = any("mortgage" in at or "home loan" in at for at in account_types)
+
+    if has_checking and not has_savings:
+        signals.add("has_checking_no_savings")
+    if not has_credit_card:
+        signals.add("no_credit_card")
+    if not has_retirement:
+        signals.add("no_retirement_account")
+    if any(x in all_text for x in ["529", "college", "child", "daughter", "son", "kids"]):
+        signals.add("has_children")
+    if any(x in all_text for x in ["401k", "rollover", "old employer"]):
+        signals.add("old_401k")
+    if not has_mortgage:
+        signals.add("renting_home")
+    if any(x in all_text for x in ["overdraft", "nsf"]):
+        signals.add("frequent_overdrafts")
+    if any(x in all_text for x in ["business", "llc", "corp"]):
+        signals.add("owns_business")
+    if has_checking and current_count <= 1:
+        signals.add("large_checking_balance")
+
+    # Collect recommended products from matched triggers
+    recs = []
+    seen_ids = set()
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    for trigger in triggers:
+        if trigger["signal"] in signals:
+            for pid in trigger.get("suggest", []):
+                if pid not in current_product_ids and pid not in seen_ids and pid in all_products:
+                    prod = all_products[pid]
+                    recs.append({
+                        "id": pid,
+                        "name": prod["name"],
+                        "category": prod["category"],
+                        "priority": trigger.get("priority", "medium"),
+                        "talk_track": prod.get("talk_track", ""),
+                        "reason": trigger.get("description", trigger["signal"]),
+                    })
+                    seen_ids.add(pid)
+
+    # Sort by priority, take top 5
+    recs.sort(key=lambda r: priority_order.get(r["priority"], 1))
+    recs = recs[:5]
+
+    return {
+        "tier": tier_name,
+        "tier_color": tier_color,
+        "tier_action": tier_action,
+        "current_count": current_count,
+        "total_count": total_count,
+        "gap_count": total_count - current_count,
+        "recommendations": recs,
+    }
+
+
+# --- Branch Concierge: VIP Arrival Awareness ---
+import uuid as _uuid
+
+_ARRIVALS = {}  # In-memory arrival registry, resets on restart
+
+_CONCIERGE_TIERS = {
+    "private": {"label": "Private Client", "color": "#8B6F47", "icon": "\u2b50"},
+    "premier": {"label": "Premier", "color": "#012169", "icon": "\ud83d\udcce"},
+    "business": {"label": "Business Banking", "color": "#2D5F3F", "icon": "\ud83c\udfe2"},
+    "retail":  {"label": "Retail", "color": "#6B7280", "icon": "\ud83d\udc64"},
+}
+
+_CONCIERGE_DEMO_CUSTOMERS = {
+    "jackie_rodriguez": {
+        "client_id": "5cdc2c3f-ad29-f111-8342-002248357e0e",
+        "name": "Jackie Rodriguez",
+        "full_name": "Jackie Marie Rodriguez",
+        "title": "VP Procurement",
+        "vip_tier": "premier",
+        "email": "jackie.rodriguez@email.com",
+        "phone": "(248) 555-0147",
+        "rm": "Jennifer",
+        "last_interaction": "Met with Jennifer on March 15 about opening a 529 plan for daughter Maya and rolling over a previous 401(k).",
+        "notes": "New client. Interested in 529 Plan and Roth IRA conversion. Two children: Maya (8) and Daniel (15).",
+    },
+    "marcus_chen": {
+        "client_id": "demo-marcus-chen-001",
+        "name": "Marcus Chen",
+        "full_name": "Marcus Wei Chen",
+        "title": "CEO, Chen Capital Partners",
+        "vip_tier": "private",
+        "email": "marcus.chen@chencapital.com",
+        "phone": "(212) 555-0331",
+        "rm": "Frank",
+        "last_interaction": "Portfolio review in February. $12M under management. Discussed rebalancing toward international equities.",
+        "notes": "High-net-worth private client. Owns Chen Capital Partners. Interested in business line of credit for new venture.",
+    },
+    "sarah_henderson": {
+        "client_id": "demo-sarah-henderson-001",
+        "name": "Sarah Henderson",
+        "full_name": "Sarah Ann Henderson",
+        "title": "Estate Trustee",
+        "vip_tier": "premier",
+        "email": "s.henderson@hendersontrust.com",
+        "phone": "(248) 555-0298",
+        "rm": "Jennifer",
+        "last_interaction": "Document review for Henderson Family Trust in March. Estate planning referral pending.",
+        "notes": "Manages Henderson Family Trust. Annual review due. Considering managed portfolio for trust assets.",
+    },
+}
+
+
+def _get_concierge_customer(name_or_id):
+    """Look up a demo customer for concierge by name or ID."""
+    search = (name_or_id or "").lower()
+    for key, cust in _CONCIERGE_DEMO_CUSTOMERS.items():
+        if search in cust["name"].lower() or search in key or search == cust["client_id"]:
+            return cust
+    return None
+
+
 # --- Dynamics 365 / MSAL Integration ---
 _D365_ORG_URL = "https://orgdf28000a.crm.dynamics.com"
 _D365_API_URL = _D365_ORG_URL + "/api/data/v9.2"
@@ -683,6 +849,8 @@ AGENT_SYSTEM_PROMPT = (
     'You help with financial product questions, client meeting preparation, and compliance checks. '
     'You have knowledge of: 529 College Savings Plans, Roth and Traditional IRAs, retirement planning, '
     'checking and savings accounts, and general banking regulations. '
+    'You have access to the bank\'s product catalog and can recommend products based on client profiles. '
+    'When prepping for a client meeting, include relevant product recommendations with specific talk tracks. '
     'All your processing runs on-device. No customer data leaves this device.\n\n'
     'You have these tools:\n\n'
     'LOCAL TOOLS:\n'
@@ -1204,6 +1372,7 @@ def execute_tool(name, arguments):
 
             # Always attempt D365 lookup if we have any name
             prep_text += f"\n{'='*40}\nD365 CUSTOMER PROFILE:\n"
+            customer_profile = None
             if client_name:
                 try:
                     sys.path.insert(0, os.path.join(_APP_DIR, 'mcp-d365'))
@@ -1213,8 +1382,41 @@ def execute_tool(name, arguments):
                     prep_text += f"\n(Source: Live D365 Dataverse via MCP)"
                 except Exception as d365_err:
                     prep_text += f"Could not look up {client_name} in D365: {d365_err}"
+
+                # Also get detailed profile (with accounts) for product matching
+                try:
+                    import requests as _req
+                    r = _req.post("http://127.0.0.1:5000/d365/customer-lookup",
+                                  json={"name": client_name}, timeout=5)
+                    if r.ok:
+                        customer_profile = r.json().get("customer", {})
+                except Exception:
+                    pass
             else:
                 prep_text += "No client name detected in meeting subject. Ask the advisor assistant to look up a specific client."
+
+            # Product recommendations from catalog
+            if customer_profile and PRODUCT_CATALOG:
+                recs = _match_product_recommendations(customer_profile)
+                prep_text += f"\n\n{'='*40}\nPRODUCT RECOMMENDATIONS:\n"
+                prep_text += f"Penetration Tier: {recs['tier']} ({recs['current_count']} of {recs['total_count']} products)\n"
+                prep_text += f"Gaps: {recs['gap_count']} products this client does not have\n"
+                if recs.get("tier_action"):
+                    prep_text += f"Strategy: {recs['tier_action']}\n"
+
+                if recs["recommendations"]:
+                    current_priority = None
+                    for i, rec in enumerate(recs["recommendations"], 1):
+                        if rec["priority"] != current_priority:
+                            current_priority = rec["priority"]
+                            prep_text += f"\n{current_priority.upper()} PRIORITY:\n"
+                        prep_text += f"{i}. {rec['name']} ({rec['category']})\n"
+                        prep_text += f"   Talk track: \"{rec['talk_track']}\"\n"
+                        prep_text += f"   Trigger: {rec['reason']}\n"
+                else:
+                    prep_text += "\nNo specific cross-sell triggers matched. Review product catalog for opportunities.\n"
+
+                prep_text += f"\n(Source: Product Catalog — {recs['total_count']} products, local analysis)"
 
             return {"success": True, "output": prep_text}
         except Exception as e:
@@ -1343,6 +1545,46 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         .persona-role { display: block; font-size: 0.7em; opacity: 0.6; margin-top: 2px; }
         .sidebar.collapsed .persona-switcher { display: none; }
         .sidebar-nav-item.persona-dim { opacity: 0.35; }
+
+        /* Branch Concierge — bell + arrivals panel */
+        .concierge-bell { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); cursor: pointer; position: relative; font-size: 0.85em; color: rgba(255,255,255,0.6); transition: color 0.2s; }
+        .concierge-bell:hover { color: #fff; }
+        .concierge-bell .bell-badge { position: absolute; top: 4px; right: 12px; min-width: 18px; height: 18px; border-radius: 9px; background: #E31837; color: #fff; font-size: 0.7em; font-weight: 700; display: none; align-items: center; justify-content: center; padding: 0 4px; }
+        .concierge-bell .bell-badge.active { display: flex; }
+        .sidebar.collapsed .concierge-bell span:not(.bell-badge) { display: none; }
+
+        .arrivals-panel { position: fixed; top: 0; right: -420px; width: 400px; height: 100%; background: #1a1a2e; border-left: 1px solid rgba(255,255,255,0.1); z-index: 1000; transition: right 0.3s ease; display: flex; flex-direction: column; box-shadow: -4px 0 20px rgba(0,0,0,0.3); }
+        .arrivals-panel.open { right: 0; }
+        .arrivals-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .arrivals-header h3 { margin: 0; color: #fff; font-size: 1.05em; }
+        .arrivals-close { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 1.4em; cursor: pointer; }
+        .arrivals-simulate { display: flex; gap: 6px; padding: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        .arrivals-simulate button { flex: 1; padding: 6px 8px; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.7); font-size: 0.72em; cursor: pointer; transition: background 0.2s; }
+        .arrivals-simulate button:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .arrivals-feed { flex: 1; overflow-y: auto; padding: 12px; }
+        .arrivals-empty { text-align: center; color: rgba(255,255,255,0.3); padding: 40px 20px; font-size: 0.9em; }
+        .arrival-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; margin-bottom: 10px; animation: liveFadeIn 0.5s ease; }
+        .arrival-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .arrival-tier { font-size: 0.7em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 8px; border-radius: 10px; }
+        .arrival-source { font-size: 0.72em; color: rgba(255,255,255,0.45); }
+        .arrival-name { font-size: 1em; font-weight: 600; color: #fff; }
+        .arrival-title { font-size: 0.8em; color: rgba(255,255,255,0.5); margin-top: 2px; }
+        .arrival-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.78em; color: rgba(255,255,255,0.4); }
+        .arrival-actions { display: flex; gap: 6px; margin-top: 10px; }
+        .arrival-actions button { flex: 1; padding: 7px 10px; border: none; border-radius: 8px; font-size: 0.8em; font-weight: 600; cursor: pointer; transition: transform 0.1s; }
+        .arrival-actions button:hover { transform: scale(1.03); }
+        .arrival-greet { background: rgba(34,197,94,0.15); color: #22c55e; }
+        .arrival-brief-btn { background: rgba(var(--brand-accent-rgb),0.12); color: var(--brand-accent); }
+        .arrival-card.greeted { border-color: rgba(34,197,94,0.3); }
+        .arrival-card.greeted .arrival-greet { background: rgba(34,197,94,0.25); }
+
+        .arrival-brief-panel { display: none; margin-top: 12px; padding: 14px; background: rgba(var(--brand-accent-rgb),0.06); border: 1px solid rgba(var(--brand-accent-rgb),0.15); border-radius: 10px; }
+        .arrival-brief-panel.visible { display: block; animation: liveFadeIn 0.4s ease; }
+        .brief-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .brief-header-title { font-size: 0.82em; font-weight: 600; color: var(--brand-accent); }
+        .brief-meta { font-size: 0.7em; color: rgba(255,255,255,0.4); }
+        .brief-text { font-size: 0.85em; color: rgba(255,255,255,0.85); line-height: 1.55; white-space: pre-wrap; }
+        .brief-local { display: inline-block; margin-top: 8px; font-size: 0.7em; padding: 3px 8px; border-radius: 6px; background: rgba(34,197,94,0.1); color: #22c55e; }
 
         .sidebar-nav { flex: 1; padding: 12px 0; display: flex; flex-direction: column; gap: 2px; }
         .sidebar-nav-item {
@@ -1889,7 +2131,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         .focus-btn {
             flex: 1;
             padding: 16px 32px;
-            background: linear-gradient(90deg, #E8590C, #FFB900);
+            background: linear-gradient(90deg, var(--brand-accent), rgba(var(--brand-accent-rgb), 0.75));
             border: none;
             color: #fff;
             font-size: 1.15em;
@@ -1903,7 +2145,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         .tomorrow-btn {
             flex: 1;
             padding: 16px 32px;
-            background: linear-gradient(90deg, #6B21A8, #A855F7);
+            background: linear-gradient(90deg, #B91C1C, #DC2626);
             border: none;
             color: #fff;
             font-size: 1.15em;
@@ -3189,6 +3431,11 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
         <nav class="sidebar-nav">
           {{PERSONA_SWITCHER}}
+          <div class="concierge-bell" id="conciergeBell" title="Branch Arrivals">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+            <span>Branch Arrivals</span>
+            <span class="bell-badge" id="bellBadge">0</span>
+          </div>
           <a class="sidebar-nav-item active" data-tab="chat">
             <span class="nav-icon">{{TAB_CHAT_ICON}}</span>
             <span class="sidebar-label">{{TAB_CHAT_NAME}}<span class="sidebar-nav-sub">{{TAB_CHAT_SUB}} with {{MODEL_LABEL}}</span></span>
@@ -3285,9 +3532,9 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
             <!-- Hero Action Buttons -->
             <div class="hero-btn-row">
-                <button class="brief-me-btn" id="briefMeBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="#f6d107" stroke="none"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg> Brief Me</button>
-                <button class="focus-btn" id="focusBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="#f6d107" stroke="none"/></svg> Top 3 Focus</button>
-                <button class="tomorrow-btn" id="tomorrowBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><rect x="7" y="14" width="4" height="3" rx="0.5" fill="#f6d107" stroke="none"/></svg> Tomorrow</button>
+                <button class="brief-me-btn" id="briefMeBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="{{BRAND_HOVER}}" stroke="none"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg> Brief Me</button>
+                <button class="focus-btn" id="focusBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="{{BRAND_HOVER}}" stroke="none"/></svg> Top 3 Focus</button>
+                <button class="tomorrow-btn" id="tomorrowBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;margin-right:6px;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><rect x="7" y="14" width="4" height="3" rx="0.5" fill="{{BRAND_HOVER}}" stroke="none"/></svg> Tomorrow</button>
             </div>
 
             <!-- Secondary Action Buttons -->
@@ -4067,8 +4314,9 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         document.addEventListener("DOMContentLoaded", function() {
             console.log("DOM loaded, setting up event handlers...");
 
-            // Reset session stats on page load (hard refresh resets the counters)
+            // Reset session stats and arrivals on page load (hard refresh resets everything)
             fetch("/session-stats/reset", { method: "POST" }).catch(function() {});
+            fetch("/arrivals/reset", { method: "POST" }).catch(function() {});
             
             // Tab switching
             function switchToTab(tabId, btnId) {
@@ -9720,6 +9968,205 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             if (closeBtn) closeBtn.addEventListener("click", hidePanel);
         })();
 
+        // ── Branch Concierge: Arrivals Panel ──
+        // Deferred init — panel HTML is at end of body, may not be in DOM yet when script runs
+        setTimeout(function() {
+        (function() {
+            var bell = document.getElementById("conciergeBell");
+            var badge = document.getElementById("bellBadge");
+            var panel = document.getElementById("arrivalsPanel");
+            var closeBtn = document.getElementById("arrivalsClose");
+            var feed = document.getElementById("arrivalsFeed");
+            var emptyState = document.getElementById("arrivalsEmpty");
+            var toast = document.getElementById("arrivalToast");
+            if (!bell || !panel) { console.warn("[Concierge] Elements not found"); return; }
+
+            var lastCount = 0;
+
+            function showToast(msg) {
+                toast.textContent = msg;
+                toast.style.display = "block";
+                setTimeout(function() { toast.style.display = "none"; }, 4000);
+            }
+
+            function simulateArrival(endpoint, defaultName) {
+                fetch(endpoint, {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({name: defaultName})
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.name) {
+                        showToast(data.name + " just arrived (" + (data.source || "").replace("_", " ") + ")");
+                        refreshArrivals();
+                    }
+                });
+            }
+
+            // Simulate buttons (may not exist yet if HTML is after script — use deferred binding)
+            function bindSim(id, endpoint, name) {
+                var btn = document.getElementById(id);
+                if (btn) btn.addEventListener("click", function() { simulateArrival(endpoint, name); });
+                else setTimeout(function() { bindSim(id, endpoint, name); }, 100);
+            }
+            bindSim("simCheckin", "/arrivals/checkin", "Jackie Rodriguez");
+            bindSim("simAppointment", "/arrivals/appointment", "Sarah Henderson");
+            bindSim("simTeller", "/arrivals/teller-identified", "Marcus Chen");
+
+            // Bell opens/closes panel
+            bell.addEventListener("click", function() {
+                panel.classList.toggle("open");
+                if (panel.classList.contains("open")) refreshArrivals();
+            });
+            closeBtn.addEventListener("click", function() { panel.classList.remove("open"); });
+
+            var _briefLoading = false; // Flag to prevent polling from rebuilding during brief fetch
+
+            function refreshArrivals() {
+                // Skip rebuild entirely if a brief is loading or visible
+                if (_briefLoading) return;
+
+                fetch("/arrivals").then(function(r) { return r.json(); }).then(function(data) {
+                    var arrivals = data.arrivals || [];
+                    // Update badge
+                    if (arrivals.length > 0) {
+                        badge.textContent = arrivals.length;
+                        badge.classList.add("active");
+                    } else {
+                        badge.classList.remove("active");
+                    }
+                    // Show toast on new arrivals
+                    if (arrivals.length > lastCount && lastCount > 0) {
+                        var newest = arrivals[0];
+                        showToast(newest.name + " just arrived (" + newest.source_label + ")");
+                    }
+                    lastCount = arrivals.length;
+
+                    // Don't rebuild if a brief is open or loading
+                    if (_briefLoading || feed.querySelector(".arrival-brief-panel.visible")) {
+                        return;
+                    }
+
+                    if (arrivals.length === 0) {
+                        feed.innerHTML = '<div class="arrivals-empty">No arrivals yet. Use the buttons above to simulate.</div>';
+                        return;
+                    }
+
+                    // Save any open brief panels before rebuilding
+                    var savedBriefs = {};
+                    var openPanels = feed.querySelectorAll(".arrival-brief-panel.visible");
+                    for (var bp = 0; bp < openPanels.length; bp++) {
+                        var bpId = openPanels[bp].id.replace("brief-", "");
+                        savedBriefs[bpId] = openPanels[bp].innerHTML;
+                    }
+
+                    var html = "";
+                    for (var i = 0; i < arrivals.length; i++) {
+                        var a = arrivals[i];
+                        var statusClass = a.status === "being_greeted" ? " greeted" : "";
+                        html += '<div class="arrival-card' + statusClass + '" id="arr-' + a.arrival_id + '">' +
+                            '<div class="arrival-card-header">' +
+                            '<span class="arrival-tier" style="background:' + a.tier_color + '22; color:' + a.tier_color + '; border:1px solid ' + a.tier_color + '44;">' + a.tier_icon + ' ' + a.tier_label + '</span>' +
+                            '<span class="arrival-source">' + a.source_label + '</span>' +
+                            '</div>' +
+                            '<div class="arrival-name">' + a.name + '</div>' +
+                            '<div class="arrival-title">' + (a.title || '') + '</div>' +
+                            '<div class="arrival-meta"><span>RM: ' + (a.rm || 'Unassigned') + '</span><span>' + a.dwell + '</span></div>' +
+                            '<div class="arrival-actions">' +
+                            '<button class="arrival-greet" data-aid="' + a.arrival_id + '" ' + (a.status === "being_greeted" ? 'disabled style="opacity:0.5;"' : '') + '>' + (a.status === "being_greeted" ? "&#10003; Greeting" : "&#128075; Greet") + '</button>' +
+                            '<button class="arrival-brief-btn" data-aid="' + a.arrival_id + '">&#128203; Prep Brief</button>' +
+                            '</div>' +
+                            '<div class="arrival-brief-panel" id="brief-' + a.arrival_id + '"></div>' +
+                            '</div>';
+                    }
+                    feed.innerHTML = html;
+
+                    // Restore saved brief panels
+                    for (var savedId in savedBriefs) {
+                        var restoredPanel = document.getElementById("brief-" + savedId);
+                        if (restoredPanel) {
+                            restoredPanel.innerHTML = savedBriefs[savedId];
+                            restoredPanel.classList.add("visible");
+                        }
+                    }
+
+                    // Wire greet buttons
+                    var greetBtns = feed.querySelectorAll(".arrival-greet");
+                    for (var g = 0; g < greetBtns.length; g++) {
+                        greetBtns[g].addEventListener("click", function() {
+                            var aid = this.getAttribute("data-aid");
+                            var btn = this;
+                            fetch("/arrivals/" + aid + "/status", {
+                                method: "POST",
+                                headers: {"Content-Type": "application/json"},
+                                body: JSON.stringify({status: "met"})
+                            }).then(function() {
+                                var card = document.getElementById("arr-" + aid);
+                                var clientName = card ? (card.querySelector(".arrival-name") || {}).textContent || "client" : "client";
+                                // Fade out and remove the card
+                                if (card) {
+                                    card.style.transition = "opacity 0.4s";
+                                    card.style.opacity = "0";
+                                    setTimeout(function() { card.remove(); refreshArrivals(); }, 400);
+                                }
+                                showToast("Greeted " + clientName + " &#10003;");
+                            });
+                        });
+                    }
+
+                    // Wire brief buttons
+                    var briefBtns = feed.querySelectorAll(".arrival-brief-btn");
+                    for (var b = 0; b < briefBtns.length; b++) {
+                        briefBtns[b].addEventListener("click", function() {
+                            var aid = this.getAttribute("data-aid");
+                            var briefPanel = document.getElementById("brief-" + aid);
+                            if (!briefPanel) return;
+
+                            // Toggle if already visible
+                            if (briefPanel.classList.contains("visible")) {
+                                briefPanel.classList.remove("visible");
+                                _briefLoading = false;
+                                return;
+                            }
+
+                            _briefLoading = true;
+                            briefPanel.innerHTML = '<div class="brief-header"><span class="brief-header-title">Generating greeting brief on NPU...</span></div>';
+                            briefPanel.classList.add("visible");
+
+                            fetch("/arrivals/" + aid + "/brief")
+                                .then(function(r) { return r.json(); })
+                                .then(function(data) {
+                                    var briefHtml = '<div class="brief-header">' +
+                                        '<span class="brief-header-title">&#129302; AI Greeting Brief</span>' +
+                                        '<span class="brief-meta">' + (data.model || 'AI') + ' on NPU &middot; ' + (data.tokens_used || 0) + ' tokens &middot; ' + (data.inference_time || 0) + 's</span>' +
+                                        '</div>' +
+                                        '<div class="brief-text">' + (data.brief || 'No brief available.').replace(/\n/g, '<br>') + '</div>' +
+                                        '<span class="brief-local">&#128274; All data from D365 &middot; Zero cloud &middot; $0.00</span>';
+                                    briefPanel.innerHTML = briefHtml;
+                                    _briefLoading = false;
+
+                                    // Track in AI session report
+                                    if (typeof window._addInspTokens === "function") {
+                                        window._addInspTokens(data.tokens_used || 300, "Greeting Brief (" + (data.client_name || "Client") + ")", data.model || "Phi-4 Mini");
+                                    }
+                                })
+                                .catch(function() {
+                                    briefPanel.innerHTML = '<div class="brief-text" style="color:#ef4444;">Brief generation failed. Check NPU status.</div>';
+                                    _briefLoading = false;
+                                });
+                        });
+                    }
+                });
+            }
+
+            // Poll every 5 seconds
+            setInterval(refreshArrivals, 5000);
+            // Initial load
+            refreshArrivals();
+        })();
+        }, 200); // end deferred setTimeout for concierge
+
     </script>
 
     <!-- D365 Mockup Overlay -->
@@ -9744,6 +10191,23 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             </div>
         </div>
     </div>
+
+    <!-- Branch Concierge Arrivals Panel -->
+    <div class="arrivals-panel" id="arrivalsPanel">
+        <div class="arrivals-header">
+            <h3>&#128276; Branch Arrivals</h3>
+            <button class="arrivals-close" id="arrivalsClose">&times;</button>
+        </div>
+        <div class="arrivals-simulate">
+            <button id="simCheckin">&#128241; App Check-In</button>
+            <button id="simAppointment">&#128197; Appointment</button>
+            <button id="simTeller">&#127970; ID at Teller</button>
+        </div>
+        <div class="arrivals-feed" id="arrivalsFeed">
+            <div class="arrivals-empty" id="arrivalsEmpty">No arrivals yet. Use the buttons above to simulate.</div>
+        </div>
+    </div>
+    <div id="arrivalToast" style="display:none; position:fixed; top:20px; right:20px; z-index:1002; padding:12px 20px; border-radius:10px; background:rgba(1,33,105,0.95); color:#fff; font-size:0.9em; font-weight:500; box-shadow:0 4px 15px rgba(0,0,0,0.3); animation:liveFadeIn 0.4s ease;"></div>
 </body>
 </html>'''
 
@@ -10261,6 +10725,26 @@ def _build_theme_overrides(cfg):
         /* Signature clear button */
         .sig-clear { background: #e0e0e0 !important; color: #333 !important; }
 
+        /* Branch Concierge light theme */
+        .concierge-bell { color: #555; border-bottom-color: #e0e0e0; }
+        .concierge-bell:hover { color: """ + accent + """; }
+        .arrivals-panel { background: #fff; border-left: 1px solid #e0e0e0; box-shadow: -4px 0 20px rgba(0,0,0,0.08); }
+        .arrivals-header { border-bottom-color: #e0e0e0; }
+        .arrivals-header h3 { color: #333; }
+        .arrivals-close { color: #999; }
+        .arrivals-simulate { border-bottom-color: #f0f0f0; }
+        .arrivals-simulate button { background: #f5f5f5; border-color: #ddd; color: #555; }
+        .arrivals-simulate button:hover { background: #eee; color: #333; }
+        .arrivals-empty { color: #aaa; }
+        .arrival-card { background: #f9f9f9; border-color: #e8e8e8; }
+        .arrival-name { color: #333 !important; }
+        .arrival-title { color: #888 !important; }
+        .arrival-meta { color: #999 !important; }
+        .arrival-source { color: #999 !important; }
+        .arrival-brief-panel { background: rgba(""" + accent_rgb + """,0.04); border-color: rgba(""" + accent_rgb + """,0.12); }
+        .brief-text { color: #333 !important; }
+        .brief-meta { color: #999 !important; }
+
         /* Persona badges */
         .persona-badge { background: #f5f5f5 !important; border: 1px solid #ddd !important; }
         .persona-badge .persona-name { color: #333 !important; }
@@ -10347,7 +10831,7 @@ def index():
     if _cfg.get("brand_theme") == "light":
         _logo_file = _cfg.get("brand_logo", "flagstar-logo-official.png")
         _brand_alt = _cfg.get("brand_company", "Brand")
-        sidebar_logo = f'<img class="brand-logo-surface" src="/logos/{_logo_file}" alt="{_brand_alt}" style="width:80%;max-width:200px;" onerror="this.style.display=\'none\'">'
+        sidebar_logo = f'<img class="brand-logo-surface" src="/logos/{_logo_file}" alt="{_brand_alt}" style="width:92%;max-width:270px;margin-top:10px;" onerror="this.style.display=\'none\'">'
     else:
         sidebar_logo = '<img class="brand-logo-surface" src="/logos/surface-logo.png" alt="Microsoft Surface" onerror="this.style.display=\'none\'"><img class="brand-logo-copilot" src="/logos/copilot-logo.avif" alt="Copilot+ PC" onerror="this.style.display=\'none\'">'
     page = page.replace("{{SIDEBAR_LOGO}}", sidebar_logo)
@@ -11541,15 +12025,30 @@ def chat():
                 # Truncate large outputs so model stays focused
                 if len(tool_output) > 1500:
                     tool_output = tool_output[:1500] + "\n...(truncated)"
+                # Customize summary instruction based on tool type
+                _summary_instruction = (
+                    "Respond to the user in plain text based on this result. "
+                    "Be concise. Do NOT use [TOOL_CALL] markers. "
+                    "Use ONLY the information above — do not invent names or facts."
+                )
+                if tool_name == "prep_next_client":
+                    _summary_instruction = (
+                        "Summarize this client prep as a natural advisor briefing.\n"
+                        "Start with a warm paragraph covering the meeting details (time, location, purpose) "
+                        "and the client profile (who they are, their accounts, how they were referred, what they're interested in). "
+                        "Write this like a senior advisor coaching a colleague — conversational, specific, helpful.\n\n"
+                        "Then add a RECOMMENDED PRODUCTS section. For each recommended product, list:\n"
+                        "- Product name (Priority level): the exact talk track in quotes, then the trigger reason.\n"
+                        "Keep all talk tracks — do NOT summarize or shorten them. These are the advisor's scripted lines.\n\n"
+                        "Use ONLY information from the tool result. Do NOT invent facts. Do NOT use [TOOL_CALL] markers."
+                    )
                 followup_msgs = [
                     {"role": "system", "content": "You are a helpful assistant. Respond in plain text only. No tool calls."},
                     {"role": "user", "content": message},
                     {"role": "assistant", "content": model_output},
                     {"role": "user", "content": (
                         f"Tool result:\n{tool_output}\n\n"
-                        "Respond to the user in plain text based on this result. "
-                        "Be concise. Do NOT use [TOOL_CALL] markers. "
-                        "Use ONLY the information above — do not invent names or facts."
+                        + _summary_instruction
                     )},
                 ]
                 try:
@@ -15319,6 +15818,240 @@ def health_check():
 def api_product_catalog():
     """Return the product catalog for the Product Penetration Dashboard."""
     return jsonify(PRODUCT_CATALOG if PRODUCT_CATALOG else {"error": "No product catalog loaded"})
+
+
+@app.route('/api/product-recommendations', methods=['POST'])
+def api_product_recommendations():
+    """Match a customer's D365 profile against the product catalog for cross-sell recommendations."""
+    data = request.json or {}
+    customer_name = data.get("name", "").strip()
+    if not customer_name:
+        return jsonify({"error": "No customer name provided"}), 400
+
+    # Get customer profile from D365 (or demo data)
+    try:
+        import requests as _req
+        r = _req.post("http://127.0.0.1:5000/d365/customer-lookup",
+                      json={"name": customer_name}, timeout=5)
+        if r.ok:
+            customer = r.json().get("customer", {})
+            recs = _match_product_recommendations(customer)
+            recs["customer_name"] = customer.get("full_name", customer_name)
+            return jsonify(recs)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    return jsonify({"error": "Customer not found"}), 404
+
+
+# --- Branch Concierge Routes ---
+
+@app.route('/arrivals', methods=['GET'])
+def get_arrivals():
+    """Return current arrivals feed."""
+    now = _time.time()
+    active = []
+    for aid, arr in list(_ARRIVALS.items()):
+        # Auto-expire after 30 minutes
+        if now - arr["arrived_at"] > 1800:
+            del _ARRIVALS[aid]
+            continue
+        if arr["status"] == "met":
+            continue
+        elapsed = int(now - arr["arrived_at"])
+        if elapsed < 60:
+            dwell = "just now"
+        elif elapsed < 3600:
+            dwell = f"{elapsed // 60} min ago"
+        else:
+            dwell = f"{elapsed // 3600}h {(elapsed % 3600) // 60}m ago"
+        tier_info = _CONCIERGE_TIERS.get(arr["tier"], _CONCIERGE_TIERS["retail"])
+        active.append({
+            "arrival_id": aid,
+            "name": arr["name"],
+            "title": arr.get("title", ""),
+            "tier": arr["tier"],
+            "tier_label": tier_info["label"],
+            "tier_color": tier_info["color"],
+            "tier_icon": tier_info["icon"],
+            "source": arr["source"],
+            "source_label": {"app_checkin": "App Check-In", "appointment": "Appointment", "teller_identified": "ID at Teller"}.get(arr["source"], arr["source"]),
+            "rm": arr.get("rm", ""),
+            "status": arr["status"],
+            "dwell": dwell,
+            "arrived_at": arr["arrived_at"],
+        })
+    active.sort(key=lambda a: a["arrived_at"], reverse=True)
+    return jsonify({"arrivals": active, "count": len(active)})
+
+
+@app.route('/arrivals/checkin', methods=['POST'])
+def arrival_checkin():
+    """Simulate mobile app check-in arrival."""
+    data = request.json or {}
+    client_name = data.get("name", "Jackie Rodriguez")
+    cust = _get_concierge_customer(client_name)
+    if not cust:
+        return jsonify({"error": f"Customer '{client_name}' not found in demo data"}), 404
+    aid = str(_uuid.uuid4())[:8]
+    _ARRIVALS[aid] = {
+        "name": cust["name"], "title": cust.get("title", ""),
+        "tier": cust["vip_tier"], "source": "app_checkin",
+        "source_token": f"app-consent-{aid}", "rm": cust.get("rm", ""),
+        "client_id": cust["client_id"], "arrived_at": _time.time(),
+        "status": "waiting",
+    }
+    print(f"[CONCIERGE] App check-in: {cust['name']} ({cust['vip_tier']})")
+    return jsonify({"arrival_id": aid, "name": cust["name"], "tier": cust["vip_tier"], "source": "app_checkin"})
+
+
+@app.route('/arrivals/appointment', methods=['POST'])
+def arrival_appointment():
+    """Simulate appointment-driven arrival."""
+    data = request.json or {}
+    client_name = data.get("name", "Sarah Henderson")
+    cust = _get_concierge_customer(client_name)
+    if not cust:
+        return jsonify({"error": f"Customer '{client_name}' not found"}), 404
+    aid = str(_uuid.uuid4())[:8]
+    _ARRIVALS[aid] = {
+        "name": cust["name"], "title": cust.get("title", ""),
+        "tier": cust["vip_tier"], "source": "appointment",
+        "source_token": f"appt-{aid}", "rm": cust.get("rm", ""),
+        "client_id": cust["client_id"], "arrived_at": _time.time(),
+        "status": "waiting",
+    }
+    print(f"[CONCIERGE] Appointment arrival: {cust['name']} ({cust['vip_tier']})")
+    return jsonify({"arrival_id": aid, "name": cust["name"], "tier": cust["vip_tier"], "source": "appointment"})
+
+
+@app.route('/arrivals/teller-identified', methods=['POST'])
+def arrival_teller():
+    """Triggered when teller scans a VIP customer's ID."""
+    data = request.json or {}
+    client_name = data.get("name", "Marcus Chen")
+    cust = _get_concierge_customer(client_name)
+    if not cust:
+        return jsonify({"error": f"Customer '{client_name}' not found"}), 404
+    if cust["vip_tier"] not in ("private", "premier"):
+        return jsonify({"skipped": True, "reason": "Customer is not VIP tier"})
+    aid = str(_uuid.uuid4())[:8]
+    _ARRIVALS[aid] = {
+        "name": cust["name"], "title": cust.get("title", ""),
+        "tier": cust["vip_tier"], "source": "teller_identified",
+        "source_token": f"teller-scan-{aid}", "rm": cust.get("rm", ""),
+        "client_id": cust["client_id"], "arrived_at": _time.time(),
+        "status": "waiting",
+    }
+    print(f"[CONCIERGE] Teller ID scan (VIP): {cust['name']} ({cust['vip_tier']})")
+    return jsonify({"arrival_id": aid, "name": cust["name"], "tier": cust["vip_tier"], "source": "teller_identified"})
+
+
+@app.route('/arrivals/<arrival_id>/brief', methods=['GET'])
+def arrival_brief(arrival_id):
+    """Generate AI greeting brief for an arrival using Phi-4 Mini on NPU."""
+    arr = _ARRIVALS.get(arrival_id)
+    if not arr:
+        return jsonify({"error": "Arrival not found"}), 404
+
+    cust = _get_concierge_customer(arr["name"])
+    if not cust:
+        return jsonify({"error": "Customer profile not found"}), 404
+
+    # Get product recommendations
+    cust_for_recs = {
+        "accounts": [{"type": "Essential Checking"}] if "jackie" in cust["name"].lower() else [],
+        "notes": cust.get("notes", ""),
+    }
+    recs = _match_product_recommendations(cust_for_recs)
+    top_recs = recs.get("recommendations", [])[:3]
+    recs_text = ""
+    for r in top_recs:
+        recs_text += f"- {r['name']} ({r['priority']}): {r['talk_track'][:120]}\n"
+
+    tier_info = _CONCIERGE_TIERS.get(cust["vip_tier"], {})
+    system_prompt = (
+        "You are a branch concierge assistant helping a bank branch manager prepare to greet a client. "
+        "Write a brief, warm greeting prep in three sections: "
+        "RECENT CONTEXT (2 sentences about their last interaction and account status), "
+        "KEY OPPORTUNITIES (2-3 bullet points of products to discuss, from the recommendations provided), "
+        "CONVERSATION STARTER (one warm, professional opening line the manager can use). "
+        "Be specific, use the client's name. Never sound surveillance-like. The banker is the hero."
+    )
+    user_prompt = (
+        f"Client: {cust['full_name']}, {cust.get('title', '')}\n"
+        f"Tier: {tier_info.get('label', cust['vip_tier'])}\n"
+        f"Relationship Manager: {cust.get('rm', 'N/A')}\n"
+        f"Last interaction: {cust.get('last_interaction', 'N/A')}\n"
+        f"Notes: {cust.get('notes', 'N/A')}\n"
+        f"Product recommendations:\n{recs_text}\n"
+        f"Generate the greeting brief."
+    )
+
+    try:
+        _call_start = _time.time()
+        response = foundry_chat(
+            model=DEFAULT_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt[:3600]},
+            ],
+            max_tokens=300,
+            temperature=0.4,
+        )
+        elapsed = _time.time() - _call_start
+        _track_model_call(response, elapsed)
+        brief = (response.choices[0].message.content or "").strip()
+        tokens = 0
+        if hasattr(response, 'usage') and response.usage:
+            tokens = (response.usage.prompt_tokens or 0) + (response.usage.completion_tokens or 0)
+
+        return jsonify({
+            "brief": brief,
+            "client_name": cust["full_name"],
+            "tier": cust["vip_tier"],
+            "tier_label": tier_info.get("label", ""),
+            "recommendations": [{"name": r["name"], "priority": r["priority"]} for r in top_recs],
+            "tokens_used": tokens,
+            "inference_time": round(elapsed, 1),
+            "model": "Phi-4 Mini",
+            "source": "npu_local",
+        })
+    except Exception as e:
+        # Fallback brief
+        return jsonify({
+            "brief": (
+                f"RECENT CONTEXT\n{cust.get('last_interaction', 'No recent interactions on file.')}\n\n"
+                f"KEY OPPORTUNITIES\n" + recs_text + "\n"
+                f"CONVERSATION STARTER\n\"Welcome, {cust['name'].split()[0]}! Great to see you today.\""
+            ),
+            "client_name": cust["full_name"],
+            "tier": cust["vip_tier"],
+            "tokens_used": 0,
+            "inference_time": 0,
+            "model": "fallback",
+            "source": "demo",
+        })
+
+
+@app.route('/arrivals/<arrival_id>/status', methods=['POST'])
+def arrival_status(arrival_id):
+    """Update arrival status (waiting -> being_greeted -> met)."""
+    arr = _ARRIVALS.get(arrival_id)
+    if not arr:
+        return jsonify({"error": "Arrival not found"}), 404
+    data = request.json or {}
+    new_status = data.get("status", "being_greeted")
+    arr["status"] = new_status
+    print(f"[CONCIERGE] {arr['name']} status -> {new_status}")
+    return jsonify({"arrival_id": arrival_id, "name": arr["name"], "status": new_status})
+
+
+@app.route('/arrivals/reset', methods=['POST'])
+def arrivals_reset():
+    """Clear all arrivals (demo reset)."""
+    _ARRIVALS.clear()
+    return jsonify({"status": "cleared"})
 
 
 @app.route('/api/config')
