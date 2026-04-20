@@ -305,25 +305,52 @@ if (Test-Path $msixPath) {
         # Manually install cert to both required stores (needs elevation)
         if ($certFile -and (Test-Path $certFile)) {
             Write-Host "   Installing cert to Trusted Root CA and Trusted People..." -ForegroundColor Gray
-            try {
-                $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certFile)
-                # Trusted Root Certificate Authorities (LocalMachine)
-                $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "LocalMachine")
-                $rootStore.Open("ReadWrite")
-                $rootStore.Add($cert)
-                $rootStore.Close()
-                # Trusted People (LocalMachine)
-                $peopleStore = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPeople", "LocalMachine")
-                $peopleStore.Open("ReadWrite")
-                $peopleStore.Add($cert)
-                $peopleStore.Close()
-                Write-Host "   [OK] Certificate installed in Trusted Root CA + Trusted People" -ForegroundColor Green
-            } catch {
-                Write-Host "   [WARN] Certificate install needs admin privileges. Run PowerShell as Administrator and re-run setup.ps1" -ForegroundColor Yellow
-                Write-Host "   Or manually import the cert:" -ForegroundColor Yellow
-                Write-Host "      1. Right-click $certFile > Install Certificate" -ForegroundColor Cyan
-                Write-Host "      2. Choose 'Local Machine' > 'Trusted Root Certification Authorities'" -ForegroundColor Cyan
-                Write-Host "      3. Repeat and choose 'Trusted People'" -ForegroundColor Cyan
+
+            # Check if already running as admin
+            $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+            if ($isAdmin) {
+                # Already elevated, install directly
+                try {
+                    $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certFile)
+                    $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "LocalMachine")
+                    $rootStore.Open("ReadWrite")
+                    $rootStore.Add($cert)
+                    $rootStore.Close()
+                    $peopleStore = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPeople", "LocalMachine")
+                    $peopleStore.Open("ReadWrite")
+                    $peopleStore.Add($cert)
+                    $peopleStore.Close()
+                    Write-Host "   [OK] Certificate installed in Trusted Root CA + Trusted People" -ForegroundColor Green
+                } catch {
+                    Write-Host "   [WARN] Certificate install failed: $_" -ForegroundColor Yellow
+                }
+            } else {
+                # Not admin -- spawn an elevated subprocess just for the cert import (UAC prompt)
+                Write-Host "   Requesting admin elevation for certificate install (UAC prompt)..." -ForegroundColor Cyan
+                $certScript = @"
+`$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('$certFile')
+`$rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
+`$rootStore.Open('ReadWrite')
+`$rootStore.Add(`$cert)
+`$rootStore.Close()
+`$peopleStore = New-Object System.Security.Cryptography.X509Certificates.X509Store('TrustedPeople', 'LocalMachine')
+`$peopleStore.Open('ReadWrite')
+`$peopleStore.Add(`$cert)
+`$peopleStore.Close()
+"@
+                try {
+                    $proc = Start-Process powershell -ArgumentList "-NoProfile", "-Command", $certScript -Verb RunAs -Wait -PassThru
+                    if ($proc.ExitCode -eq 0) {
+                        Write-Host "   [OK] Certificate installed via elevated prompt" -ForegroundColor Green
+                    } else {
+                        Write-Host "   [WARN] Elevated cert install returned exit code $($proc.ExitCode)" -ForegroundColor Yellow
+                    }
+                } catch {
+                    Write-Host "   [WARN] UAC elevation was declined or failed." -ForegroundColor Yellow
+                    Write-Host "   Vision Service will be skipped. The app works without it." -ForegroundColor Yellow
+                    Write-Host "   To install later, run setup.ps1 as Administrator." -ForegroundColor Cyan
+                }
             }
         } else {
             Write-Host "   [WARN] No .cer file found. Vision Service MSIX may fail to install." -ForegroundColor Yellow
@@ -348,22 +375,39 @@ if (Test-Path $msixPath) {
             }
         }
 
-        # Step 7c: Install the Vision Service MSIX
-        Write-Host "   Installing Vision Service package..." -ForegroundColor Gray
+        # Step 7c: Verify cert is trusted before attempting MSIX install
+        Write-Host "   Verifying certificate trust..." -ForegroundColor Gray
+        $certTrusted = $false
         try {
-            Add-AppxPackage -Path $msixPath
-            $pkg = Get-AppxPackage -Name 'Microsoft.NPUDemo.VisionService' -ErrorAction SilentlyContinue
-            if ($pkg) {
-                Write-Host "   [OK] Vision Service installed" -ForegroundColor Green
-                Write-Host "   PFN: $($pkg.PackageFamilyName)" -ForegroundColor Gray
-            } else {
-                Write-Host "   [WARN] Install command ran but package not found" -ForegroundColor Yellow
+            $trustedCerts = Get-ChildItem Cert:\LocalMachine\TrustedPeople -ErrorAction SilentlyContinue
+            $rootCerts = Get-ChildItem Cert:\LocalMachine\Root -ErrorAction SilentlyContinue
+            # Check for our cert thumbprint (CN=FrankBu)
+            $targetThumb = "D105059461CAEB607A40723E92CBDFB91917A570"
+            if (($trustedCerts | Where-Object { $_.Thumbprint -eq $targetThumb }) -and
+                ($rootCerts | Where-Object { $_.Thumbprint -eq $targetThumb })) {
+                $certTrusted = $true
             }
-        } catch {
-            Write-Host "   [FAIL] Could not install MSIX. Common fixes:" -ForegroundColor Red
-            Write-Host "      1. Trust the signing cert (run vision-service\scripts\setup-cert.ps1 as admin)" -ForegroundColor Yellow
-            Write-Host "      2. Enable Developer Mode (Settings > For developers)" -ForegroundColor Yellow
-            Write-Host "      3. Rebuild from source: vision-service\scripts\rebuild-msix.ps1" -ForegroundColor Yellow
+        } catch { }
+
+        if ($certTrusted) {
+            Write-Host "   Installing Vision Service package..." -ForegroundColor Gray
+            try {
+                Add-AppxPackage -Path $msixPath
+                $pkg = Get-AppxPackage -Name 'Microsoft.NPUDemo.VisionService' -ErrorAction SilentlyContinue
+                if ($pkg) {
+                    Write-Host "   [OK] Vision Service installed" -ForegroundColor Green
+                    Write-Host "   PFN: $($pkg.PackageFamilyName)" -ForegroundColor Gray
+                } else {
+                    Write-Host "   [WARN] Install command ran but package not found" -ForegroundColor Yellow
+                }
+            } catch {
+                Write-Host "   [FAIL] Could not install MSIX: $_" -ForegroundColor Red
+                Write-Host "      Try: Enable Developer Mode (Settings > For developers)" -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "   [SKIP] Signing certificate not trusted -- skipping MSIX install." -ForegroundColor Yellow
+            Write-Host "   The app works without Vision Service (Phi Silica features disabled)." -ForegroundColor Yellow
+            Write-Host "   To install later: run setup.ps1 as Administrator." -ForegroundColor Cyan
         }
     }
 } else {
