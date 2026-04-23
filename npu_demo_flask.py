@@ -261,7 +261,7 @@ def _get_concierge_customer(name_or_id):
 # --- Dynamics 365 / MSAL Integration ---
 _D365_ORG_URL = "https://orgdf28000a.crm.dynamics.com"
 _D365_API_URL = _D365_ORG_URL + "/api/data/v9.2"
-_D365_APP_ID = _D365_ORG_URL + "/main.aspx?appid=5b168771-b5ce-ef11-8eea-7c1e5219a0f0"
+_D365_APP_ID = _D365_ORG_URL + "/main.aspx?appid=c22cb86f-ff3c-f111-88b5-002248357e0e"
 _D365_TOKEN_CACHE = None  # Cached access token
 _D365_TOKEN_EXPIRY = 0    # Unix timestamp when token expires
 
@@ -3578,11 +3578,11 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                   <span class="chip-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/><circle cx="12" cy="7" r="1.5" fill="#f6d107" stroke="none"/></svg></span>
                   <span>Prep Next Client</span>
                 </button>
-                <a class="suggestion-chip" href="https://orgdf28000a.crm.dynamics.com/main.aspx?appid=e386e65f-ec29-f111-8342-002248357e0e&pagetype=genux&id=6e691a49-650c-419f-8177-3d0e41c38cd8" target="_blank" style="text-decoration:none;">
+                <a class="suggestion-chip" href="https://orgdf28000a.crm.dynamics.com/main.aspx?appid=c22cb86f-ff3c-f111-88b5-002248357e0e&pagetype=genux&id=e62fe4bc-354b-4113-86e8-2653b2b6b3a4" target="_blank" style="text-decoration:none;">
                   <span class="chip-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/><circle cx="9" cy="7" r="1.5" fill="#f6d107" stroke="none"/></svg></span>
                   <span>Customer Queue</span>
                 </a>
-                <a class="suggestion-chip" href="https://www.office.com" target="_blank" style="text-decoration:none;">
+                <a class="suggestion-chip" href="https://outlook.cloud.microsoft/calendar/view/day" target="_blank" style="text-decoration:none;">
                   <span class="chip-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="vertical-align:middle;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/><circle cx="12" cy="10" r="1.5" fill="#f6d107" stroke="none"/></svg></span>
                   <span>Outlook / Office</span>
                 </a>
@@ -8918,7 +8918,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                             "<br>Customer: " + (data.customer_name || namePart) +
                             "<br>Timestamp: " + (data.timestamp || new Date().toISOString()) +
                             (isLive ? "<br><em>Task created on contact record in Dynamics 365</em>" : "") +
-                            '<br><a href="https://orgdf28000a.crm.dynamics.com/main.aspx?appid=aedf8383-df29-f111-8342-002248357e0e&forceUCI=1&pagetype=entityrecord&etn=contact&id=5cdc2c3f-ad29-f111-8342-002248357e0e" target="_blank" ' +
+                            '<br><a href="https://orgdf28000a.crm.dynamics.com/main.aspx?appid=c22cb86f-ff3c-f111-88b5-002248357e0e&forceUCI=1&pagetype=entityrecord&etn=contact&id=5cdc2c3f-ad29-f111-8342-002248357e0e" target="_blank" ' +
                             'style="display:inline-block;margin-top:8px;padding:8px 20px;background:#0078D4;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:0.9em;text-decoration:none;">' +
                             '\u2601 Open in Dynamics 365</a>';
                         resultDiv.style.display = "block";
@@ -12033,13 +12033,15 @@ def chat():
                 )
                 if tool_name == "prep_next_client":
                     _summary_instruction = (
-                        "Summarize this client prep as a natural advisor briefing.\n"
-                        "Start with a warm paragraph covering the meeting details (time, location, purpose) "
-                        "and the client profile (who they are, their accounts, how they were referred, what they're interested in). "
-                        "Write this like a senior advisor coaching a colleague — conversational, specific, helpful.\n\n"
-                        "Then add a RECOMMENDED PRODUCTS section. For each recommended product, list:\n"
-                        "- Product name (Priority level): the exact talk track in quotes, then the trigger reason.\n"
-                        "Keep all talk tracks — do NOT summarize or shorten them. These are the advisor's scripted lines.\n\n"
+                        "Format this client prep into THREE clearly separated sections. Use this EXACT structure:\n\n"
+                        "MEETING\n"
+                        "Write 2-3 sentences about the meeting: time, location, purpose, what to expect.\n\n"
+                        "CLIENT PROFILE\n"
+                        "Write 2-3 sentences about the client: who they are, their accounts, how they were referred, key context.\n\n"
+                        "RECOMMENDED PRODUCTS\n"
+                        "For each recommended product, write one bullet:\n"
+                        "- Product name (Priority): the exact talk track in quotes, then the trigger reason.\n"
+                        "Keep all talk tracks word for word. Do NOT combine sections. Do NOT merge into one paragraph.\n\n"
                         "Use ONLY information from the tool result. Do NOT invent facts. Do NOT use [TOOL_CALL] markers."
                     )
                 followup_msgs = [
@@ -13270,7 +13272,7 @@ def d365_customer_lookup():
             if not customer["recent_activity"]:
                 customer["recent_activity"] = ["No recent activity found"]
 
-            d365_url = _D365_ORG_URL + f"/main.aspx?appid=aedf8383-df29-f111-8342-002248357e0e&forceUCI=1&pagetype=entityrecord&etn=contact&id={contact_id}"
+            d365_url = _D365_ORG_URL + f"/main.aspx?appid=c22cb86f-ff3c-f111-88b5-002248357e0e&forceUCI=1&pagetype=entityrecord&etn=contact&id={contact_id}"
             print(f"[D365] Live lookup found: {customer['full_name']} (ID: {contact_id})")
             return jsonify({
                 "source": "live",
@@ -13307,7 +13309,7 @@ def d365_customer_lookup():
                     "03/10/2026 - Referred by existing member (ID: C-20198)"
                 ]
             },
-            "d365_url": _D365_ORG_URL + "/main.aspx?appid=aedf8383-df29-f111-8342-002248357e0e&forceUCI=1&pagetype=entityrecord&etn=contact&id=5cdc2c3f-ad29-f111-8342-002248357e0e"
+            "d365_url": _D365_ORG_URL + "/main.aspx?appid=c22cb86f-ff3c-f111-88b5-002248357e0e&forceUCI=1&pagetype=entityrecord&etn=contact&id=5cdc2c3f-ad29-f111-8342-002248357e0e"
         })
 
     # Generic fallback for unknown names
