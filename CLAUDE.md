@@ -219,6 +219,15 @@ Light theme is activated when `brand_theme: "light"` in config. `_build_theme_ov
 - Uses Phi Silica Vision (`Microsoft.Windows.AI.Imaging`) and TextRewriter (`Microsoft.Windows.AI.Text`)
 - Requires `systemAIModels` capability and LAF token
 
+### Azure Foundry Credentials
+
+- **File:** `.azure-foundry.env` in repo root -- **NOT in git** (matched by `*.env` in `.gitignore`, ACL-locked to local user)
+- **Contains:** Two Azure Foundry deployment endpoints (GPT-5.4 and Claude Opus 4.7) and a shared API key. Do not read, paste, or log this file's contents.
+- **Used for:** Pilot corpus generation for LoRA training. The corpus builder script (future, on TheBeast) calls these deployments as scenario planner/generator (GPT-5.4) and judge (Claude Opus 4.7) to produce high-quality training pairs.
+- **Not used on Surface** -- this file is only consumed by the training pipeline on TheBeast.
+- **To regenerate:** Any Claude Code session with `az` CLI auth to the `surhub.onmicrosoft.com` tenant can regenerate this file.
+- **Transfer to TheBeast:** `tailscale scp` (TheBeast is not corp-trusted, so OneDrive sync is not available). Copy to the same relative path in TheBeast's local repo clone.
+
 ## Security Measures
 
 1. **File system jailing:** All read/write via `_path_in_demo_dir()` (line 1081) -- `os.path.realpath()` validation against `DEMO_DIR`

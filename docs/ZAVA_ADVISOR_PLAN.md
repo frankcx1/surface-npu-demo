@@ -55,9 +55,23 @@ This extends the existing demo's value proposition from "run AI locally" to "run
 
 The training pipeline lives in `/training/` and exists **only on TheBeast**. It is never shipped to the Surface or committed to the production branch.
 
+### Azure Foundry Deployments (LIVE as of 2026-04-23)
+
+Two Azure Foundry model deployments are provisioned and ready for corpus generation:
+
+| Deployment | Model | Role |
+|-----------|-------|------|
+| Scenario planner/generator | GPT-5.4 | Generates diverse banking advisor scenarios, client profiles, and multi-turn conversations for training data |
+| Judge | Claude Opus 4.7 | Evaluates generated training pairs for quality, persona consistency, and compliance accuracy; filters low-quality samples |
+
+Credentials are in `.azure-foundry.env` on the Surface (not in git). Transfer to TheBeast via `tailscale scp` before running the corpus pipeline. See CLAUDE.md "Azure Foundry Credentials" section for regeneration instructions.
+
+The pilot corpus script (`corpus_builder.py`) will be written in a future session on TheBeast once the env file is transferred.
+
 ### Pipeline Steps
 
 1. **`corpus_builder.py`** -- Generates training data from:
+   - Azure Foundry deployments (GPT-5.4 as generator, Claude Opus 4.7 as judge)
    - Marcus Reed persona definition (tone, knowledge domains, example interactions)
    - Financial domain knowledge (529 Plans, IRA rules, estate planning, insurance products)
    - Compliance guardrails (what to defer, how to disclaim, when to escalate)
