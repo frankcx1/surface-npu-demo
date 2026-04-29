@@ -655,6 +655,89 @@ def foundry_chat(retries=1, **kwargs):
 # --- Model readiness flag (set after warmup) ---
 MODEL_READY = False
 
+# --- Marcus Reed persona (Zava Advisor: stock Phi-4 Mini + system prompt) ---
+_MARCUS_AVAILABLE = False
+_MARCUS_SYSTEM_PROMPT = ""
+_MARCUS_PERSONA_PATH = os.path.join(_APP_ROOT, "configs", "personas", "marcus_reed.yaml")
+
+if _yaml and os.path.exists(_MARCUS_PERSONA_PATH):
+    try:
+        with open(_MARCUS_PERSONA_PATH, 'r', encoding='utf-8') as _mf:
+            _marcus_persona = _yaml.safe_load(_mf)
+        _MARCUS_SYSTEM_PROMPT = _marcus_persona.get("system_prompt", "")
+        _MARCUS_AVAILABLE = True
+        print(f"  Marcus persona loaded: {_marcus_persona.get('name', '?')} ({_marcus_persona.get('title', '?')})", flush=True)
+    except Exception as _pe:
+        print(f"  Warning: Marcus persona YAML failed: {_pe}", flush=True)
+
+
+def _financial_advice_gate(text):
+    """Safety gate: block rate quotes, guarantees, ticker picks, and tax/legal advice.
+    Returns (is_safe, filtered_text). If not safe, filtered_text is a deferral message."""
+    if not text:
+        return True, text
+    lower = text.lower()
+    # Rate quotes / APR / yield numbers
+    if re.search(r'\b\d+\.?\d*\s*%\s*(apy|apr|rate|yield|return|interest)\b', lower):
+        return False, ("I appreciate the question, but I'd need to check with our product team "
+                       "for current rates. Those can change, and I want to make sure you get the "
+                       "right number. Let me look that up for you after our conversation.")
+    # Dollar outcome projections ("you'll have $X" or "$X-$Y")
+    if re.search(r"you(?:'ll| will| would| could) have [\$\d]", lower):
+        return False, ("That's a great question to think through. Rather than give you a specific "
+                       "number — which depends on a lot of variables — let me walk you through the "
+                       "factors that would shape the outcome.")
+    # Specific fund tickers (2-5 uppercase letters that look like tickers)
+    if re.search(r'\b(buy|recommend|pick|invest in|look at)\b.*\b[A-Z]{2,5}\b', text):
+        _false_tickers = {'IRA', 'CPA', 'ETF', 'APR', 'APY', 'FDIC', 'UGMA', 'UTMA', 'CDD', 'KYC', 'BSA', 'AML'}
+        tickers_found = re.findall(r'\b[A-Z]{2,5}\b', text)
+        real_tickers = [t for t in tickers_found if t not in _false_tickers]
+        if real_tickers:
+            return False, ("I can't recommend specific funds or tickers — that's not the kind of "
+                           "guidance I'm set up to give. What I can do is walk you through the types "
+                           "of investments that typically make sense for your situation, and then you "
+                           "and a licensed advisor can narrow it down.")
+    # Tax filing specifics
+    if re.search(r'\b(file|report|deduct|claim|form \d{3,4}|schedule [a-z]|1099|w-?2)\b', lower) and \
+       re.search(r'\b(should|must|need to|have to|exactly how)\b', lower):
+        if not re.search(r'\b(talk to|consult|cpa|tax professional|accountant)\b', lower):
+            return False, ("Tax filing gets specific fast, and I'd rather you get that from someone "
+                           "who knows your full situation — a CPA or tax professional would be the "
+                           "right call here. What I can help with is the bigger-picture planning around it.")
+    return True, text
+
+
+def _marcus_chat(user_message, history=None):
+    """Chat via Marcus Reed persona on stock model + system prompt. Returns (response_text, elapsed_seconds)."""
+    if not _MARCUS_AVAILABLE:
+        return "Marcus Reed persona is not configured. Check configs/personas/marcus_reed.yaml.", 0.0
+
+    system = _MARCUS_SYSTEM_PROMPT or "You are Marcus Reed, a Senior Wealth Advisor at Zava Financial."
+    messages = [{"role": "system", "content": system}]
+    if history:
+        for msg in history:
+            messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+    messages.append({"role": "user", "content": user_message})
+
+    start = _time.time()
+    response = foundry_chat(
+        model=DEFAULT_MODEL,
+        messages=messages,
+        max_tokens=600,
+        temperature=0.3,
+    )
+    elapsed = _time.time() - start
+    _track_model_call(response, elapsed)
+    result = (response.choices[0].message.content or "").strip()
+
+    # Safety gate
+    is_safe, filtered = _financial_advice_gate(result)
+    if not is_safe:
+        result = filtered
+
+    return result, elapsed
+
+
 # --- Agent infrastructure ---
 # Demo data lives alongside the app so the repo is self-contained.
 # Resolves to <project_root>/demo_data regardless of working directory.
@@ -5859,6 +5942,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         var pendingApprovalReview = false;
         var pendingSummarize = false;
         var lastAssistantResponse = "";
+        var chatHistory = [];  // Conversation history for persona continuity
 
         function renderApprovalCard(planText) {
             // Parse plan body — extract lines between markers or use raw text
@@ -5966,6 +6050,8 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             document.getElementById("sendBtn").disabled = true;
 
             addMessage("user", message);
+            var historyToSend = chatHistory.slice(-10);
+            chatHistory.push({"role": "user", "content": message});
 
             var assistantDiv = addMessage("assistant", '<span class="spinner"></span> Thinking...');
             var contentDiv = assistantDiv.querySelector(".content");
@@ -5974,7 +6060,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             fetch("/chat", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({ message: message, model: currentModel })
+                body: JSON.stringify({ message: message, model: currentModel, history: historyToSend })
             })
             .then(function(r) { return r.body.getReader(); })
             .then(function(reader) {
@@ -6034,6 +6120,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
                         var responseText = evt.text || "";
                         lastAssistantResponse = responseText;
+                        chatHistory.push({"role": "assistant", "content": responseText});
                         // Check for approval gate: [PLAN] markers OR heuristic (pendingApprovalReview + bullet list + no TOOL_CALL)
                         var hasPlanMarkers = responseText.indexOf("[PLAN]") >= 0 && responseText.indexOf("[/PLAN]") >= 0;
                         var hasBullets = (responseText.match(/^[-•*]\s/m) || responseText.match(/^\d+\.\s/m));
@@ -11968,13 +12055,42 @@ def summarize_doc():
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    """Agent chat — routes through tool-calling pipeline."""
+    """Agent chat — routes through tool-calling pipeline or Marcus Reed persona."""
     data = request.json
     message = data.get('message', '')
     model = DEFAULT_MODEL
 
+    # Route decision: messages that need tool calling use AGENT_SYSTEM_PROMPT (with tool defs).
+    # Free-text banking questions use Marcus persona system prompt (warmer, no tool markers).
+    _tool_keywords = [
+        'tool_call', 'TOOL_CALL', 'prep_next_client', 'my_calendar_today',
+        'd365_customer_lookup', 'd365_check_in_queue', 'd365_log_activity',
+        'd365_recent_activities', 'read(', 'write(', 'exec(',
+        'Use the prep_next_client', 'Use the my_calendar', 'Use the d365_',
+        'run a command', 'get-childitem', 'get-content',
+        'Show me my calendar', 'What meetings do I have',
+    ]
+    _needs_tools = any(kw in message for kw in _tool_keywords)
+
     def generate():
-        # Step 1: Send to model with agent system prompt
+        # Free-text path: use Marcus persona prompt (warmer tone, conversation history)
+        if _MARCUS_AVAILABLE and not _needs_tools:
+            yield json.dumps({"type": "thinking"}) + "\n"
+            start = _time.time()
+            try:
+                history = data.get("history", [])
+                marcus_response, elapsed = _marcus_chat(message, history)
+                think_time = round(elapsed, 1)
+                yield json.dumps({"type": "think_done", "time": think_time}) + "\n"
+                total = round(_time.time() - start, 1)
+                yield json.dumps({"type": "response", "text": marcus_response, "time": total}) + "\n"
+                yield json.dumps({"type": "done"}) + "\n"
+            except Exception as e:
+                print(f"[Marcus] Error: {e}", flush=True)
+                yield json.dumps({"type": "error", "message": str(e)}) + "\n"
+            return
+
+        # Tool-calling path: use AGENT_SYSTEM_PROMPT (includes tool definitions)
         yield json.dumps({"type": "thinking"}) + "\n"
         start = _time.time()
 
