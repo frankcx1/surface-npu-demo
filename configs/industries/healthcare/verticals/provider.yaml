@@ -1,0 +1,16 @@
+# provider.yaml - Healthcare Provider vertical
+# Extends the root healthcare industry config.
+# Provider IS the default healthcare persona, so this vertical
+# contains minimal overrides. It exists to establish the vertical_id
+# and to serve as the extension point if provider-specific divergence
+# is needed later (e.g., hospital vs. ambulatory clinic).
+
+extends: industries/healthcare/industry.yaml
+
+vertical_id: provider
+display_name: "Healthcare Provider"
+status: active
+
+# No overrides needed -- provider is the industry default.
+# Add provider-specific vocabulary, tab, or prompt overrides here
+# if the provider vertical diverges from the root industry config.

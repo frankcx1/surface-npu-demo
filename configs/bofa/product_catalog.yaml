@@ -3,7 +3,7 @@
 # Customize this file for each bank customer (products, rates, bundles).
 
 categories:
-  # ── Consumer Deposit Accounts ──
+  # -- Consumer Deposit Accounts --
   - id: deposits
     name: "Deposit Accounts"
     products:
@@ -55,7 +55,7 @@ categories:
         terms: ["3mo", "6mo", "12mo", "24mo", "36mo", "60mo"]
         talk_track: "If you have funds you won't need for a while, locking in a CD rate could be a smart move. Our 12-month CD is currently at 4.80%."
 
-  # ── Credit Cards ──
+  # -- Credit Cards --
   - id: cards
     name: "Credit Cards"
     products:
@@ -81,7 +81,7 @@ categories:
         deposit_required: true
         talk_track: "If you're looking to build credit history, our Secured Card is a great starting point. Your deposit becomes your credit limit."
 
-  # ── Consumer Lending ──
+  # -- Consumer Lending --
   - id: lending
     name: "Consumer Lending"
     products:
@@ -120,7 +120,7 @@ categories:
         amounts: "$2,000 - $50,000"
         talk_track: "A personal loan can consolidate higher-rate debt into one fixed monthly payment. Rates start at 6.99% depending on your credit."
 
-  # ── Retirement and Investment ──
+  # -- Retirement and Investment --
   - id: retirement
     name: "Retirement & Investment"
     products:
@@ -164,7 +164,7 @@ categories:
         aum_fee: "0.85%"
         talk_track: "With a managed portfolio, our investment team handles the day-to-day decisions. The minimum is $25,000 and fees are 0.85% of assets under management."
 
-  # ── Protection and Insurance ──
+  # -- Protection and Insurance --
   - id: protection
     name: "Protection & Insurance"
     products:
@@ -188,7 +188,7 @@ categories:
         description: "Term and whole life options through our insurance partners"
         talk_track: "With a growing family, it's worth looking at life insurance. We work with top carriers and can get you quotes during your next visit."
 
-  # ── Digital and Convenience ──
+  # -- Digital and Convenience --
   - id: digital
     name: "Digital Banking"
     products:
@@ -206,7 +206,7 @@ categories:
         monthly_fee: 0
         talk_track: "Online Bill Pay lets you schedule all your bills in one place. No more writing checks or logging into multiple websites."
 
-  # ── Business Banking ──
+  # -- Business Banking --
   - id: business
     name: "Business Banking"
     products:
@@ -231,7 +231,7 @@ categories:
         description: "Accept card payments in-store, online, or on-the-go with competitive interchange rates"
         talk_track: "If your business accepts card payments, we can usually save you on processing fees compared to third-party providers."
 
-# ── Cross-Sell Trigger Rules ──
+# -- Cross-Sell Trigger Rules --
 # These define when to recommend a product based on customer signals
 cross_sell_triggers:
   - signal: "has_checking_no_savings"
@@ -299,7 +299,7 @@ cross_sell_triggers:
     suggest: ["cd_standard", "managed_portfolio", "savings_high_yield"]
     priority: high
 
-# ── Product Bundles ──
+# -- Product Bundles --
 bundles:
   new_customer_starter:
     name: "New Customer Starter"
@@ -326,7 +326,7 @@ bundles:
     products: ["biz_checking", "biz_line_of_credit", "merchant_services"]
     incentive: "First 6 months of merchant processing fees waived"
 
-# ── Penetration Scoring ──
+# -- Penetration Scoring --
 # How to grade a customer's relationship depth
 penetration_tiers:
   - tier: "New"

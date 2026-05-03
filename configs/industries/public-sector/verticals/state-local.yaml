@@ -1,0 +1,25 @@
+# state-local.yaml -- Public Sector > State & Local vertical
+# Extends: ../industry.yaml
+# Status: stub -- all overrides are placeholders, not yet authored.
+
+schema_version: 1
+
+extends: industries/public-sector/industry.yaml
+vertical_id: state-local
+display_name: "State & Local Government"
+status: stub
+
+# ---------------------------------------------------------------------------
+# Vocabulary overrides
+# ---------------------------------------------------------------------------
+vocabulary:
+  organization: "department"
+
+# ---------------------------------------------------------------------------
+# Compliance -- adds StateRAMP to base regimes (FedRAMP, FISMA)
+# ---------------------------------------------------------------------------
+compliance:
+  regimes:
+    - FedRAMP
+    - FISMA
+    - StateRAMP

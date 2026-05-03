@@ -64,12 +64,246 @@ def _load_yaml_config():
             'economics':        raw.get('economics', {}),
             'demo_script':      raw.get('demo_script', []),
             'industry':         raw.get('industry', {}),
+            # Industry Packs activation markers (appended by switch-brand.cmd)
+            'use_industry_packs': raw.get('use_industry_packs', False),
+            'active_brand':     raw.get('active_brand', ''),
         }
         print(f"  Config loaded from demo_config.yaml", flush=True)
         return cfg
     except Exception as e:
         print(f"  Warning: Failed to load demo_config.yaml: {e}", flush=True)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Industry Packs: Config inheritance loader (Wave 0)
+# ---------------------------------------------------------------------------
+# When use_industry_packs is enabled, the app resolves brand configs through
+# a three-tier YAML inheritance chain: industry → vertical → brand.
+# This loader coexists with the legacy _load_yaml_config() path.
+# Default: disabled (legacy path). Enable via use_industry_packs: true
+# in root demo_config.yaml or via --industry-pack <brand_id> CLI arg.
+# ---------------------------------------------------------------------------
+
+def _deep_merge(dst, src):
+    """In-place deep merge. src wins. Dicts merge recursively, lists replace."""
+    for key, value in src.items():
+        if (key in dst
+                and isinstance(dst[key], dict)
+                and isinstance(value, dict)):
+            _deep_merge(dst[key], value)
+        else:
+            dst[key] = value
+
+
+def _load_resolved_config(brand_id):
+    """Resolve a brand's full config by walking the extends chain.
+    Returns: (resolved_dict, chain) where chain is the list of files merged.
+    Raises RuntimeError on missing files, circular extends, or invalid schema.
+    """
+    if not _yaml:
+        raise RuntimeError("PyYAML is required for industry packs")
+
+    chain = []
+    visited = set()
+    current_path = os.path.join(_APP_ROOT, "configs", "brands",
+                                brand_id, "demo_config.yaml")
+
+    docs = []
+    while current_path:
+        real = os.path.realpath(current_path)
+        if real in visited:
+            raise RuntimeError(f"Circular extends in config chain: {real}")
+        visited.add(real)
+
+        if not os.path.exists(real):
+            raise RuntimeError(f"Config file not found: {real}")
+
+        with open(real, 'r', encoding='utf-8') as f:
+            doc = _yaml.safe_load(f) or {}
+        docs.append(doc)
+        chain.append(real)
+
+        ext = doc.get("extends")
+        if not ext:
+            break
+        current_path = os.path.join(_APP_ROOT, "configs", ext)
+
+    if len(chain) > 4:
+        raise RuntimeError(
+            f"Config extends chain too deep ({len(chain)} levels): "
+            + " -> ".join(chain))
+
+    # Reverse so root industry is first, brand is last (last writer wins)
+    docs.reverse()
+    chain.reverse()
+
+    resolved = {}
+    for doc in docs:
+        _deep_merge(resolved, doc)
+
+    return resolved, list(reversed(chain))
+
+
+# Required vocabulary tokens (Section 8 of spec)
+_REQUIRED_VOCAB_TOKENS = [
+    "subject", "subject_plural", "practitioner", "practitioner_plural",
+    "engagement", "engagement_plural", "record", "records_system",
+    "organization", "catalog_item",
+]
+
+# Required prompt capability IDs (Section 10 of spec)
+_REQUIRED_PROMPT_IDS = [
+    "agent_system_framing", "brief_me", "triage_inbox", "prep_next_meeting",
+    "top_3_focus", "tomorrow_preview", "pii_contract_review",
+    "pii_marketing_review", "id_analyze", "check_analyze",
+    "live_assist_analyze", "live_assist_translate",
+    "meeting_transcribe_extract", "meeting_classify", "meeting_annotate",
+    "meeting_report", "meeting_translate", "concierge_greeting_brief",
+    "email_polish", "device_health_summary", "security_audit_summary",
+    "device_search", "summarize_doc", "detect_pii", "knowledge_qa",
+]
+
+# Uppercase HTML template vars (must not collide with lowercase vocab tokens)
+_HTML_TEMPLATE_VARS = {
+    "APP_TITLE", "BRAND_ACCENT", "BRAND_ACCENT_RGB", "BRAND_PRIMARY",
+    "BRAND_PRIMARY_END", "BRAND_HOVER", "BRAND_COMPANY", "ADVISOR_NAME",
+    "ADVISOR_TITLE", "ADVISOR_COMPANY", "ADVISOR_PHONE", "POC_FOOTER",
+    "POC_AUDITOR", "POC_ID", "CHIP_LABEL", "MODEL_LABEL", "DEVICE_LABEL",
+    "MODEL_ALIAS", "TAB_CHAT_NAME", "TAB_CHAT_SUB", "TAB_CHAT_ICON",
+    "TAB_DAY_NAME", "TAB_DAY_SUB", "TAB_DAY_ICON", "TAB_AUDITOR_NAME",
+    "TAB_AUDITOR_SUB", "TAB_AUDITOR_ICON", "TAB_ID_NAME", "TAB_ID_SUB",
+    "TAB_ID_ICON", "TAB_LIVE_NAME", "TAB_LIVE_SUB", "TAB_LIVE_ICON",
+    "TAB_FIELD_NAME", "TAB_FIELD_SUB", "TAB_FIELD_ICON", "THEME_OVERRIDES",
+    "SIDEBAR_LOGO", "PERSONA_SWITCHER", "PLACEHOLDER_CLIENT",
+    "PLACEHOLDER_LOCATION", "PLACEHOLDER_ISSUE", "PLACEHOLDER_SOURCE",
+    "ANNOTATION_LABEL", "ANNOTATION_FALLBACK",
+}
+
+_REQUIRED_TAB_IDS = ["chat", "day", "auditor", "id", "live", "field"]
+
+
+def _validate_resolved_config(resolved):
+    """Validate a resolved config dict. Raises RuntimeError on failure."""
+    errors = []
+
+    # schema_version
+    sv = resolved.get("schema_version")
+    if sv != 1:
+        errors.append(f"schema_version must be 1, got {sv!r}")
+
+    # vocabulary: all required tokens present and are strings
+    vocab = resolved.get("vocabulary", {})
+    for token in _REQUIRED_VOCAB_TOKENS:
+        val = vocab.get(token)
+        if val is None:
+            errors.append(f"vocabulary.{token} is missing")
+        elif not isinstance(val, str):
+            errors.append(
+                f"vocabulary.{token} must be a string, got {type(val).__name__} "
+                f"({val!r}). Quote the value in YAML to fix.")
+
+    # vocab token / HTML template var collision check
+    for token in vocab:
+        if token.upper() in _HTML_TEMPLATE_VARS:
+            errors.append(
+                f"vocabulary token '{token}' collides with HTML template var "
+                f"'{token.upper()}'. Rename the vocab token.")
+
+    # tabs: all 6 IDs present
+    tabs = resolved.get("tabs", {})
+    for tid in _REQUIRED_TAB_IDS:
+        if tid not in tabs:
+            errors.append(f"tabs.{tid} is missing")
+
+    # status
+    status = resolved.get("status", "active")
+    brand_status = resolved.get("brand_status", "active")
+    is_stub = (status == "stub" or brand_status == "stub")
+
+    # prompts: all capability IDs present (stubs can use placeholder strings)
+    prompts = resolved.get("prompts", {})
+    for pid in _REQUIRED_PROMPT_IDS:
+        if pid not in prompts:
+            if is_stub:
+                pass  # stubs may omit prompts
+            else:
+                errors.append(f"prompts.{pid} is missing (required for active config)")
+
+    # compliance: safety gate must be registered (if not stub)
+    gate_name = (resolved.get("compliance", {}).get("primary_safety_gate") or "")
+    if gate_name and not is_stub:
+        # Can't validate against _SAFETY_GATES here because they may not be
+        # registered yet at import time. Validation is deferred to startup.
+        pass
+
+    # concierge: tiers must be present if enabled
+    concierge = resolved.get("concierge", {})
+    if concierge.get("enabled") and not concierge.get("tiers"):
+        errors.append("concierge.enabled is true but concierge.tiers is empty")
+
+    # pii: demo_person_names must be a list of strings
+    pii_names = resolved.get("pii", {}).get("demo_person_names", [])
+    if pii_names and not isinstance(pii_names, list):
+        errors.append("pii.demo_person_names must be a list")
+
+    # demo_data: path must exist (unless stub)
+    demo_path = resolved.get("demo_data", {}).get("path", "")
+    if demo_path and not is_stub:
+        full_path = os.path.join(_APP_ROOT, demo_path)
+        if not os.path.isdir(full_path):
+            # Warning only, not fatal — demo data may not be populated yet
+            print(f"  Warning: demo_data.path '{demo_path}' does not exist on disk")
+
+    if errors:
+        raise RuntimeError(
+            f"Config validation failed ({len(errors)} errors):\n  " +
+            "\n  ".join(errors))
+
+
+def _render_vocab(template_str, vocab_dict):
+    """Replace {{token}} placeholders with vocabulary values.
+    Tokens not found in vocab_dict are left as-is (and logged as warnings).
+    Only replaces lowercase tokens — uppercase HTML template vars are untouched.
+    """
+    if not template_str or not vocab_dict:
+        return template_str or ""
+    result = template_str
+    for key, value in vocab_dict.items():
+        placeholder = "{{" + key + "}}"
+        if placeholder in result:
+            result = result.replace(placeholder, str(value))
+    return result
+
+
+def _get_prompt(capability_id, resolved_config=None, **extra_vars):
+    """Render a capability prompt from config with vocabulary substitution.
+    Falls back to empty string with warning if prompt not found (for stubs).
+    """
+    cfg = resolved_config or globals().get("RESOLVED_CONFIG", {})
+    template = cfg.get("prompts", {}).get(capability_id)
+    if not template:
+        industry = cfg.get("industry_id", "unknown")
+        brand = cfg.get("brand_id", "unknown")
+        print(f"  Warning: prompt '{capability_id}' missing "
+              f"(industry={industry}, brand={brand})")
+        return ""
+    vocab = cfg.get("vocabulary", {})
+    # Add brand-level vars to vocab for substitution
+    brand_vars = {
+        "company_name": cfg.get("brand", {}).get("company_name", ""),
+        "advisor_name": cfg.get("advisor", {}).get("name", ""),
+        "advisor_title": cfg.get("advisor", {}).get("title", ""),
+        "advisor_org": cfg.get("advisor", {}).get("organization_unit", ""),
+    }
+    merged = {**vocab, **brand_vars, **extra_vars}
+    return _render_vocab(template, merged)
+
+
+# Module-level resolved config (set during startup if industry packs enabled)
+RESOLVED_CONFIG = {}
+_INDUSTRY_PACKS_ACTIVE = False
+_CONFIG_CHAIN = []
 
 
 def _load_product_catalog():
@@ -524,6 +758,73 @@ DEMO_CONFIG = _YAML_CONFIG if _YAML_CONFIG else {
 if not _YAML_CONFIG:
     print("  Using hardcoded DEMO_CONFIG (no YAML)", flush=True)
 
+# --- Industry Packs: Feature flag and resolved config ---
+# Check if the active config requests the industry packs loader.
+# CLI: python npu_demo_flask.py --industry-pack zava-health
+# YAML: use_industry_packs: true + active_brand: "zava-health" in root demo_config.yaml
+import sys as _sys
+_cli_brand = None
+if "--industry-pack" in _sys.argv:
+    _idx = _sys.argv.index("--industry-pack")
+    if _idx + 1 < len(_sys.argv):
+        _cli_brand = _sys.argv[_idx + 1]
+
+_use_packs = bool(_cli_brand) or (
+    _YAML_CONFIG is not None and
+    isinstance(_YAML_CONFIG, dict) and
+    _YAML_CONFIG.get("use_industry_packs") is True
+)
+
+if _use_packs:
+    _pack_brand = _cli_brand or DEMO_CONFIG.get("active_brand", "")
+    if _pack_brand:
+        try:
+            RESOLVED_CONFIG, _CONFIG_CHAIN = _load_resolved_config(_pack_brand)
+            _validate_resolved_config(RESOLVED_CONFIG)
+            _INDUSTRY_PACKS_ACTIVE = True
+            _chain_names = [os.path.basename(os.path.dirname(p)) for p in _CONFIG_CHAIN]
+            print(f"  Industry packs: loaded brand '{_pack_brand}' "
+                  f"(chain: {' -> '.join(_chain_names)})", flush=True)
+
+            # Overlay resolved config into DEMO_CONFIG for backward compat
+            # This lets existing index() template injection work unchanged
+            _rc = RESOLVED_CONFIG
+            _rb = _rc.get("brand", {})
+            _ra = _rc.get("advisor", {})
+            _rp = _rc.get("poc", {})
+            DEMO_CONFIG.update({
+                "app_title": _rc.get("app_title", DEMO_CONFIG.get("app_title", "")),
+                "brand_primary": _rb.get("primary", DEMO_CONFIG.get("brand_primary", "")),
+                "brand_primary_end": _rb.get("primary_end", DEMO_CONFIG.get("brand_primary_end", "")),
+                "brand_accent": _rb.get("accent", DEMO_CONFIG.get("brand_accent", "")),
+                "brand_accent_rgb": _rb.get("accent_rgb", DEMO_CONFIG.get("brand_accent_rgb", "")),
+                "brand_hover": _rb.get("hover", DEMO_CONFIG.get("brand_hover", "")),
+                "brand_theme": _rb.get("theme", DEMO_CONFIG.get("brand_theme", "")),
+                "brand_logo": _rb.get("logo", DEMO_CONFIG.get("brand_logo", "")),
+                "brand_company": _rb.get("company_name", DEMO_CONFIG.get("brand_company", "")),
+                "advisor_name": _ra.get("name", DEMO_CONFIG.get("advisor_name", "")),
+                "advisor_title": _ra.get("title", DEMO_CONFIG.get("advisor_title", "")),
+                "advisor_company": _ra.get("company", DEMO_CONFIG.get("advisor_company", "")),
+                "advisor_phone": _ra.get("phone", DEMO_CONFIG.get("advisor_phone", "")),
+                "advisor_email": _ra.get("email", DEMO_CONFIG.get("advisor_email", "")),
+                "tabs": _rc.get("tabs", DEMO_CONFIG.get("tabs", {})),
+                "personas": _rc.get("personas", DEMO_CONFIG.get("personas", [])),
+                "poc_footer": _rp.get("footer", DEMO_CONFIG.get("poc_footer", "")),
+                "poc_auditor": _rp.get("auditor", DEMO_CONFIG.get("poc_auditor", "")),
+                "poc_id": _rp.get("id", DEMO_CONFIG.get("poc_id", "")),
+                "customer": _rc.get("customer", DEMO_CONFIG.get("customer", {})),
+                "branches": _rc.get("branches", DEMO_CONFIG.get("branches", [])),
+                "economics": _rc.get("economics", DEMO_CONFIG.get("economics", {})),
+                "demo_script": _rc.get("demo_script", DEMO_CONFIG.get("demo_script", [])),
+                "industry": _rc.get("industry", DEMO_CONFIG.get("industry", {})),
+            })
+        except Exception as _e:
+            print(f"  Industry packs: FAILED to load '{_pack_brand}': {_e}", flush=True)
+            print(f"  Falling back to legacy config path", flush=True)
+            _INDUSTRY_PACKS_ACTIVE = False
+    else:
+        print("  Industry packs: use_industry_packs is true but no active_brand set", flush=True)
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
@@ -671,6 +972,50 @@ if _yaml and os.path.exists(_MARCUS_PERSONA_PATH):
         print(f"  Warning: Marcus persona YAML failed: {_pe}", flush=True)
 
 
+# ---------------------------------------------------------------------------
+# Safety Gate Registry (Section 9a of spec)
+# ---------------------------------------------------------------------------
+# Each industry declares a primary_safety_gate in its compliance config.
+# Gates are registered as Python functions and looked up by name at runtime.
+# The active gate is determined by RESOLVED_CONFIG when industry packs are
+# enabled, or defaults to financial_advice_gate for the legacy path.
+# ---------------------------------------------------------------------------
+
+_SAFETY_GATES = {}
+
+
+def _register_safety_gate(name):
+    """Decorator to register a safety gate function by name."""
+    def decorator(fn):
+        _SAFETY_GATES[name] = fn
+        return fn
+    return decorator
+
+
+def _get_active_safety_gate():
+    """Return the safety gate function for the active config."""
+    if _INDUSTRY_PACKS_ACTIVE and RESOLVED_CONFIG:
+        gate_name = (RESOLVED_CONFIG.get("compliance", {})
+                     .get("primary_safety_gate", ""))
+    else:
+        gate_name = "financial_advice_gate"  # legacy default
+    if not gate_name:
+        return _passthrough_gate
+    gate = _SAFETY_GATES.get(gate_name)
+    if not gate:
+        print(f"  Warning: safety gate '{gate_name}' not registered, "
+              f"falling back to passthrough")
+        return _passthrough_gate
+    return gate
+
+
+@_register_safety_gate("passthrough")
+def _passthrough_gate(text):
+    """No-op safety gate. Returns text unchanged."""
+    return True, text
+
+
+@_register_safety_gate("financial_advice_gate")
 def _financial_advice_gate(text):
     """Safety gate: block rate quotes, guarantees, ticker picks, and tax/legal advice.
     Returns (is_safe, filtered_text). If not safe, filtered_text is a deferral message."""
@@ -707,6 +1052,191 @@ def _financial_advice_gate(text):
     return True, text
 
 
+@_register_safety_gate("clinical_advice_gate")
+def _clinical_advice_gate(text):
+    """Safety gate for healthcare: block definitive diagnoses, dosing, and treatment plans.
+    Returns (is_safe, filtered_text). If not safe, filtered_text is a deferral message."""
+    if not text:
+        return True, text
+    lower = text.lower()
+    # Definitive diagnosis claims ("you have X", "this is X", "you are diagnosed with")
+    if re.search(r'\b(you have|you are diagnosed with|this is clearly|diagnosis is)\b', lower):
+        if not re.search(r'\b(discuss with|talk to|your (doctor|clinician|provider|care team))\b', lower):
+            return False, ("I want to be careful here — I can help you think through what these "
+                           "findings might mean, but a definitive diagnosis really needs to come from "
+                           "your care team after a proper evaluation. Let me help you prepare the "
+                           "right questions for that conversation.")
+    # Dosing recommendations ("take Xmg", "prescribe", "dose of")
+    if re.search(r'\b(take \d+\s*mg|prescribe|dose of \d|dosage should be|administer \d)\b', lower):
+        return False, ("Medication dosing is something I'd want your prescribing clinician to handle "
+                       "directly — there are too many patient-specific factors for me to give a safe "
+                       "recommendation. I can help you document what was discussed and flag it for review.")
+    # Treatment plan directives ("you should start", "begin treatment with", "I recommend starting")
+    if re.search(r'\b(you should start|begin treatment|recommend starting|initiate therapy)\b', lower):
+        if not re.search(r'\b(discuss|consider|your (doctor|clinician|provider))\b', lower):
+            return False, ("Treatment decisions should be made collaboratively with your care team. "
+                           "What I can do is help summarize the relevant factors and options to "
+                           "support that conversation.")
+    return True, text
+
+
+# Stub safety gates for future industries
+# _STUB_TODO: Replace with real implementations when each industry goes active
+
+@_register_safety_gate("pharma_promotional_gate")
+def _pharma_promotional_gate(text):
+    """STUB: Pharma promotional review gate. Returns passthrough + logs TODO."""
+    # _STUB_TODO: Implement off-label detection, fair balance check, efficacy claim validation
+    return True, text
+
+
+@_register_safety_gate("ferpa_gate")
+def _ferpa_gate(text):
+    """STUB: FERPA education records gate."""
+    # _STUB_TODO: Implement student record disclosure checks
+    return True, text
+
+
+@_register_safety_gate("cui_gate")
+def _cui_gate(text):
+    """STUB: CUI (Controlled Unclassified Information) gate for public sector."""
+    # _STUB_TODO: Implement CUI marking and disclosure checks
+    return True, text
+
+
+@_register_safety_gate("export_control_gate")
+def _export_control_gate(text):
+    """STUB: Export control / ITAR gate for manufacturing."""
+    # _STUB_TODO: Implement ITAR/EAR classification checks
+    return True, text
+
+
+@_register_safety_gate("pci_gate")
+def _pci_gate(text):
+    """STUB: PCI DSS cardholder data gate for retail."""
+    # _STUB_TODO: Implement cardholder data detection and blocking
+    return True, text
+
+
+# ---------------------------------------------------------------------------
+# Cross-Sell Signal Registry (Section 9b of spec)
+# ---------------------------------------------------------------------------
+# Signal evaluators are registered Python functions (Option B).
+# The catalog YAML names which signals apply and maps them to recommended
+# products/services. Logic stays testable in Python, mapping is configurable.
+# ---------------------------------------------------------------------------
+
+_CROSS_SELL_SIGNALS = {}
+
+
+def _register_signal(name):
+    """Decorator to register a cross-sell signal evaluator by name."""
+    def decorator(fn):
+        _CROSS_SELL_SIGNALS[name] = fn
+        return fn
+    return decorator
+
+
+def _evaluate_signals(customer_data, signal_defs):
+    """Evaluate cross-sell signals for a customer.
+    signal_defs: list of {signal, items/suggest, priority, talk_track} from catalog YAML.
+    Returns: list of matched signal defs.
+    """
+    matches = []
+    for sig_def in signal_defs:
+        evaluator = _CROSS_SELL_SIGNALS.get(sig_def.get("signal", ""))
+        if not evaluator:
+            continue  # signal not registered for this industry, skip silently
+        try:
+            if evaluator(customer_data):
+                matches.append(sig_def)
+        except Exception:
+            continue  # defensive: don't crash on a bad signal evaluator
+    return matches
+
+
+# --- Financial Services signals ---
+
+@_register_signal("has_checking_no_savings")
+def _sig_has_checking_no_savings(customer_data):
+    accounts = [a.get("type", "").lower() for a in customer_data.get("accounts", [])]
+    return any("checking" in a for a in accounts) and not any("saving" in a for a in accounts)
+
+
+@_register_signal("no_credit_card")
+def _sig_no_credit_card(customer_data):
+    accounts = [a.get("type", "").lower() for a in customer_data.get("accounts", [])]
+    return not any("card" in a or "credit" in a for a in accounts)
+
+
+@_register_signal("no_retirement_account")
+def _sig_no_retirement(customer_data):
+    all_text = " ".join(a.get("type", "").lower() for a in customer_data.get("accounts", []))
+    all_text += " " + (customer_data.get("notes") or "").lower()
+    return not any(kw in all_text for kw in ("ira", "401k", "retirement", "pension"))
+
+
+@_register_signal("has_children")
+def _sig_has_children(customer_data):
+    notes = (customer_data.get("notes") or "").lower()
+    return any(kw in notes for kw in ("529", "college", "child", "daughter", "son", "kids"))
+
+
+@_register_signal("old_401k")
+def _sig_old_401k(customer_data):
+    all_text = " ".join(a.get("type", "").lower() for a in customer_data.get("accounts", []))
+    all_text += " " + (customer_data.get("notes") or "").lower()
+    return any(kw in all_text for kw in ("401k", "rollover", "old employer"))
+
+
+@_register_signal("renting_home")
+def _sig_renting_home(customer_data):
+    accounts = [a.get("type", "").lower() for a in customer_data.get("accounts", [])]
+    return not any("mortgage" in a or "home loan" in a for a in accounts)
+
+
+@_register_signal("frequent_overdrafts")
+def _sig_frequent_overdrafts(customer_data):
+    all_text = " ".join(a.get("type", "").lower() for a in customer_data.get("accounts", []))
+    all_text += " " + (customer_data.get("notes") or "").lower()
+    return any(kw in all_text for kw in ("overdraft", "nsf"))
+
+
+@_register_signal("owns_business")
+def _sig_owns_business(customer_data):
+    all_text = " ".join(a.get("type", "").lower() for a in customer_data.get("accounts", []))
+    all_text += " " + (customer_data.get("notes") or "").lower()
+    return any(kw in all_text for kw in ("business", "llc", "corp"))
+
+
+@_register_signal("large_checking_balance")
+def _sig_large_checking_balance(customer_data):
+    accounts = [a.get("type", "").lower() for a in customer_data.get("accounts", [])]
+    return any("checking" in a for a in accounts) and len(accounts) <= 1
+
+
+# --- Healthcare signals (stubs) ---
+# _STUB_TODO: Replace with real evaluators in healthcare content sprint.
+# All stubs return False by default per spec v2 implementation notes.
+
+@_register_signal("no_annual_wellness")
+def _sig_no_annual_wellness(customer_data):
+    # _STUB_TODO: Check patient visit history for annual wellness gap
+    return False
+
+
+@_register_signal("overdue_screenings")
+def _sig_overdue_screenings(customer_data):
+    # _STUB_TODO: Check age-appropriate screening schedule against visit history
+    return False
+
+
+@_register_signal("unmanaged_chronic")
+def _sig_unmanaged_chronic(customer_data):
+    # _STUB_TODO: Check for chronic condition flags without active care management
+    return False
+
+
 def _marcus_chat(user_message, history=None):
     """Chat via Marcus Reed persona on stock model + system prompt. Returns (response_text, elapsed_seconds)."""
     if not _MARCUS_AVAILABLE:
@@ -730,8 +1260,9 @@ def _marcus_chat(user_message, history=None):
     _track_model_call(response, elapsed)
     result = (response.choices[0].message.content or "").strip()
 
-    # Safety gate
-    is_safe, filtered = _financial_advice_gate(result)
+    # Safety gate (uses registry when industry packs active, else financial_advice_gate)
+    _active_gate = _get_active_safety_gate()
+    is_safe, filtered = _active_gate(result)
     if not is_safe:
         result = filtered
 
@@ -2008,6 +2539,19 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             line-height: 1.5;
         }
         .poc-banner strong { font-weight: 700; }
+        .industry-stub-banner {
+            background: #FFF3CD;
+            color: #856404;
+            border: none;
+            border-bottom: 2px solid #FFEEBA;
+            padding: 10px 20px;
+            font-size: 0.88em;
+            font-weight: 600;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
         .poc-footer {
             color: rgba(255,255,255,0.4);
             font-size: 0.75em;
@@ -3493,8 +4037,6 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         <div class="perf-row"><span class="perf-label">CPU</span><div class="perf-bar-track"><div class="perf-bar-fill cpu" id="perfCpuBar" style="width:0%"></div></div><span class="perf-value cpu" id="perfCpuVal">0%</span></div>
         <div class="perf-row"><span class="perf-label">GPU</span><div class="perf-bar-track"><div class="perf-bar-fill gpu" id="perfGpuBar" style="width:0%"></div></div><span class="perf-value gpu" id="perfGpuVal">0%</span></div>
         <div class="perf-row"><span class="perf-label">NPU</span><div class="perf-bar-track"><div class="perf-bar-fill npu" id="perfNpuBar" style="width:0%"></div></div><span class="perf-value npu" id="perfNpuVal">0%</span></div>
-        <div class="perf-row"><span class="perf-label">RAM</span><div class="perf-bar-track"><div class="perf-bar-fill mem" id="perfMemBar" style="width:0%"></div></div><span class="perf-value mem" id="perfMemVal">0%</span></div>
-        <div class="perf-mem-detail" id="perfMemDetail">0 / 0 GB</div>
         <div class="perf-sparkline" id="perfSparkline"></div>
         <div class="perf-spark-label"><span>NPU 30s</span><span>now</span></div>
         <div class="perf-hotkey-hint">Ctrl + Shift + M</div>
@@ -3573,6 +4115,10 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 
       <!-- ── Main Content ── -->
       <main class="main-content">
+        <!-- Industry Packs: stub banner (hidden unless stub mode) -->
+        <div id="industry-stub-banner" class="industry-stub-banner" style="display:none;">
+          Architecture Preview: <span id="stubIndustryName"></span> pack is a stub. Demo content not yet authored.
+        </div>
         <div class="container">
         <!-- Hidden tab buttons (preserve IDs for switchToTab backward compat) -->
         <div class="tabs" style="display:none;">
@@ -5254,18 +5800,52 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                         } else if (action === "my-calendar") {
                             sendChatMessage("Show me my calendar for today. What meetings do I have and who am I meeting with?");
                         } else if (action === "prep-next-client") {
-                            // Show a generic prompt but send a specific one
+                            // Progressive steps UI: show each data source being queried
                             var input = document.getElementById("userInput");
-                            input.value = "Prep me for my next client meeting and pull up their D365 profile.";
                             var emptyState = document.getElementById("chatEmptyState");
                             if (emptyState) emptyState.style.display = "none";
-                            // Override: send the specific prompt but display the generic one
                             addMessage("user", "Prep me for my next client meeting and pull up their D365 profile.");
                             input.value = "";
                             document.getElementById("sendBtn").disabled = true;
-                            var assistantDiv = addMessage("assistant", '<span class="spinner"></span> Thinking...');
+                            var assistantDiv = addMessage("assistant", "");
                             var contentDiv = assistantDiv.querySelector(".content");
-                            var htmlParts = [];
+
+                            var steps = [
+                                {icon: "&#128197;", text: "Checking Outlook Calendar via Work IQ..."},
+                                {icon: "&#128269;", text: "Found next client meeting — pulling details..."},
+                                {icon: "&#127981;", text: "Looking up client in Dynamics 365 via MCP..."},
+                                {icon: "&#128218;", text: "Scanning Product Catalog for recommendations..."},
+                                {icon: "&#129302;", text: "Phi-4 Mini summarizing all sources on NPU..."}
+                            ];
+                            var currentStep = 0;
+
+                            function renderSteps() {
+                                var html = '<div style="display:flex;flex-direction:column;gap:6px;font-size:0.88em;">';
+                                for (var s = 0; s < steps.length; s++) {
+                                    var marker = s < currentStep ? '<span style="color:#22c55e;">&#10003;</span>'
+                                               : s === currentStep ? '<span class="spinner" style="width:14px;height:14px;"></span>'
+                                               : '<span style="opacity:0.3;">&#9711;</span>';
+                                    var opacity = s <= currentStep ? '1' : '0.4';
+                                    html += '<div style="display:flex;align-items:center;gap:8px;opacity:' + opacity + ';">' +
+                                            marker + ' ' + steps[s].icon + ' ' + steps[s].text + '</div>';
+                                }
+                                html += '</div>';
+                                return html;
+                            }
+
+                            contentDiv.innerHTML = renderSteps();
+
+                            // Advance steps 0-3 on a timer (800ms each); step 4 waits for response
+                            var stepTimer = setInterval(function() {
+                                currentStep++;
+                                if (currentStep >= steps.length - 1) {
+                                    clearInterval(stepTimer);
+                                    currentStep = steps.length - 1;
+                                }
+                                contentDiv.innerHTML = renderSteps();
+                                document.getElementById("chatContainer").scrollTop = document.getElementById("chatContainer").scrollHeight;
+                            }, 800);
+
                             fetch("/chat", {
                                 method: "POST",
                                 headers: {"Content-Type": "application/json"},
@@ -5276,9 +5856,14 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                             }).then(function(r) { return r.body.getReader(); })
                             .then(function(reader) {
                                 var buffer = "";
+                                var responseText = "";
+                                var responseTime = "";
                                 function read() {
                                     reader.read().then(function(chunk) {
-                                        if (chunk.done) { document.getElementById("sendBtn").disabled = false; return; }
+                                        if (chunk.done) {
+                                            document.getElementById("sendBtn").disabled = false;
+                                            return;
+                                        }
                                         buffer += new TextDecoder().decode(chunk.value);
                                         var lines = buffer.split("\n");
                                         buffer = lines.pop();
@@ -5287,25 +5872,18 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                                             try {
                                                 var evt = JSON.parse(line);
                                                 if (evt.type === "response") {
-                                                    htmlParts = htmlParts.filter(function(p) { return p.indexOf("Thinking") < 0 && p.indexOf("spinner") < 0; });
-                                                    lastAssistantResponse = evt.text || "";
-                                                    htmlParts.push('<div style="margin-top:8px;">' + (evt.text || "").replace(/\n/g, "<br>") + '</div>');
-                                                    htmlParts.push('<div class="tool-time" style="margin-top:4px;">&#9201; Total: ' + evt.time + 's</div>');
-                                                    contentDiv.innerHTML = htmlParts.join("");
-                                                } else if (evt.type === "thinking") {
-                                                    htmlParts.push('<div style="color:rgba(var(--brand-accent-rgb),0.6);font-size:0.85em;">&#129504; Thinking...</div>');
-                                                    contentDiv.innerHTML = htmlParts.join("");
-                                                } else if (evt.type === "think_done") {
-                                                    htmlParts = htmlParts.filter(function(p) { return p.indexOf("Thinking") < 0; });
-                                                    htmlParts.push('<div style="color:rgba(var(--brand-accent-rgb),0.5);font-size:0.82em;">&#129504; Thought for ' + evt.time + 's</div>');
-                                                    contentDiv.innerHTML = htmlParts.join("");
-                                                } else if (evt.type === "tool_call") {
-                                                    htmlParts.push('<div style="margin:6px 0;padding:6px 10px;background:rgba(var(--brand-accent-rgb),0.08);border-radius:6px;font-size:0.85em;">&#128295; Tool: ' + evt.name + '</div>');
-                                                    contentDiv.innerHTML = htmlParts.join("");
-                                                } else if (evt.type === "tool_result") {
-                                                    var out = (evt.output || "").substring(0, 200);
-                                                    htmlParts.push('<div style="font-size:0.82em;color:#888;">&#9989; ' + out + '...</div>');
-                                                    contentDiv.innerHTML = htmlParts.join("");
+                                                    responseText = evt.text || "";
+                                                    responseTime = evt.time || "";
+                                                    lastAssistantResponse = responseText;
+                                                    chatHistory.push({"role": "assistant", "content": responseText});
+                                                    // Final checkmark on last step + show result below checklist
+                                                    clearInterval(stepTimer);
+                                                    currentStep = steps.length;
+                                                    var finalHtml = renderSteps();
+                                                    finalHtml += '<div style="border-top:1px solid rgba(var(--brand-accent-rgb),0.15);margin:12px 0;"></div>';
+                                                    finalHtml += '<div>' + mdToHtml(responseText) + '</div>';
+                                                    finalHtml += '<div class="tool-time" style="margin-top:4px;">&#9201; Total: ' + responseTime + 's &middot; All search and consolidation on-device</div>';
+                                                    contentDiv.innerHTML = finalHtml;
                                                 } else if (evt.type === "done") {
                                                     document.getElementById("sendBtn").disabled = false;
                                                     if (lastAssistantResponse) {
@@ -5316,8 +5894,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                                                                 chipHtml += '<button class="suggestion-chip dynamic-followup" onclick="sendChatMessage(\'' + chips[ci].query.replace(/'/g, "\\'") + '\')" style="font-size:0.82em;padding:8px 14px;cursor:pointer;"><span class="chip-icon">' + chips[ci].icon + '</span><span>' + chips[ci].label + '</span></button>';
                                                             }
                                                             chipHtml += '</div>';
-                                                            htmlParts.push(chipHtml);
-                                                            contentDiv.innerHTML = htmlParts.join("");
+                                                            contentDiv.innerHTML += chipHtml;
                                                         }
                                                     }
                                                 }
@@ -7848,13 +8425,15 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     // CO2: ~0.4 Wh per cloud query, 373g CO2/kWh grid average
                     var aiOps = log.filter(function(e) { return e.tokens > 0; }).length;
                     var co2Avoided = (aiOps * 0.4 / 1000 * 373).toFixed(1);
+                    var carbonVisible = (typeof window._showCarbon === "function") ? window._showCarbon() : true;
+                    var co2Display = carbonVisible ? "" : "display:none;";
 
                     summary.innerHTML =
                         '<div style="display:flex; gap:24px; flex-wrap:wrap; justify-content:center;">' +
                         '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + totalTokens.toLocaleString() + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Total Tokens</div></div>' +
                         '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">$0.00</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">NPU Cost</div></div>' +
                         '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#ef4444 !important; text-decoration:line-through;">$' + totalCost + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Cloud Would Cost</div></div>' +
-                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + co2Avoided + 'g</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">CO&#8322; Saved</div></div>' +
+                        '<div style="text-align:center;' + co2Display + '"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + co2Avoided + 'g</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">CO&#8322; Saved</div></div>' +
                         '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">0</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Bytes Transmitted</div></div>' +
                         '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + log.length + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">AI Operations</div></div>' +
                         '</div>';
@@ -10015,9 +10594,6 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     document.getElementById("perfGpuVal").textContent = d.gpu + "%";
                     document.getElementById("perfNpuBar").style.width = d.npu + "%";
                     document.getElementById("perfNpuVal").textContent = d.npu + "%";
-                    document.getElementById("perfMemBar").style.width = d.mem_pct + "%";
-                    document.getElementById("perfMemVal").textContent = d.mem_pct + "%";
-                    document.getElementById("perfMemDetail").textContent = d.mem_used + " / " + d.mem_total + " GB";
 
                     // Update NPU sparkline
                     sparkData.push(d.npu);
@@ -10049,6 +10625,18 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 if (e.ctrlKey && e.shiftKey && e.key === "M") {
                     e.preventDefault();
                     togglePanel();
+                }
+            });
+
+            // Hotkey: Ctrl+Shift+C — toggle carbon/CO2 savings visibility
+            var _showCarbon = true;
+            window._showCarbon = function() { return _showCarbon; };
+            document.addEventListener("keydown", function(e) {
+                if (e.ctrlKey && e.shiftKey && e.key === "C") {
+                    e.preventDefault();
+                    _showCarbon = !_showCarbon;
+                    var co2El = document.getElementById("savingsCO2");
+                    if (co2El) co2El.style.display = _showCarbon ? "" : "none";
                 }
             });
 
@@ -10218,13 +10806,50 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                             }
 
                             _briefLoading = true;
-                            briefPanel.innerHTML = '<div class="brief-header"><span class="brief-header-title">Generating greeting brief on NPU...</span></div>';
                             briefPanel.classList.add("visible");
+
+                            // Progressive steps for greeting brief
+                            var bSteps = [
+                                {icon: "&#127981;", text: "Looking up client in D365 via MCP..."},
+                                {icon: "&#128197;", text: "Checking today's calendar via Work IQ..."},
+                                {icon: "&#128218;", text: "Scanning Product Catalog..."},
+                                {icon: "&#129302;", text: "Phi-4 Mini generating greeting brief on NPU..."}
+                            ];
+                            var bCurrent = 0;
+
+                            function renderBriefSteps() {
+                                var h = '<div style="display:flex;flex-direction:column;gap:4px;font-size:0.85em;padding:8px 0;">';
+                                for (var s = 0; s < bSteps.length; s++) {
+                                    var mk = s < bCurrent ? '<span style="color:#22c55e;">&#10003;</span>'
+                                           : s === bCurrent ? '<span class="spinner" style="width:12px;height:12px;"></span>'
+                                           : '<span style="opacity:0.3;">&#9711;</span>';
+                                    var op = s <= bCurrent ? '1' : '0.4';
+                                    h += '<div style="display:flex;align-items:center;gap:6px;opacity:' + op + ';">' +
+                                         mk + ' ' + bSteps[s].icon + ' ' + bSteps[s].text + '</div>';
+                                }
+                                h += '</div>';
+                                return h;
+                            }
+
+                            briefPanel.innerHTML = renderBriefSteps();
+
+                            var bTimer = setInterval(function() {
+                                bCurrent++;
+                                if (bCurrent >= bSteps.length - 1) {
+                                    clearInterval(bTimer);
+                                    bCurrent = bSteps.length - 1;
+                                }
+                                briefPanel.innerHTML = renderBriefSteps();
+                            }, 800);
 
                             fetch("/arrivals/" + aid + "/brief")
                                 .then(function(r) { return r.json(); })
                                 .then(function(data) {
-                                    var briefHtml = '<div class="brief-header">' +
+                                    clearInterval(bTimer);
+                                    bCurrent = bSteps.length;
+                                    var briefHtml = renderBriefSteps();
+                                    briefHtml += '<div style="border-top:1px solid rgba(var(--brand-accent-rgb),0.12);margin:8px 0;"></div>';
+                                    briefHtml += '<div class="brief-header">' +
                                         '<span class="brief-header-title">&#129302; AI Greeting Brief</span>' +
                                         '<span class="brief-meta">' + (data.model || 'AI') + ' on NPU &middot; ' + (data.tokens_used || 0) + ' tokens &middot; ' + (data.inference_time || 0) + 's</span>' +
                                         '</div>' +
@@ -10237,8 +10862,12 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                                     if (typeof window._addInspTokens === "function") {
                                         window._addInspTokens(data.tokens_used || 300, "Greeting Brief (" + (data.client_name || "Client") + ")", data.model || "Phi-4 Mini");
                                     }
+
+                                    // Save brief content for persistence across refreshes
+                                    savedBriefs[aid] = briefPanel.innerHTML;
                                 })
                                 .catch(function() {
+                                    clearInterval(bTimer);
                                     briefPanel.innerHTML = '<div class="brief-text" style="color:#ef4444;">Brief generation failed. Check NPU status.</div>';
                                     _briefLoading = false;
                                 });
@@ -10922,6 +11551,24 @@ def index():
     else:
         sidebar_logo = '<img class="brand-logo-surface" src="/logos/surface-logo.png" alt="Microsoft Surface" onerror="this.style.display=\'none\'"><img class="brand-logo-copilot" src="/logos/copilot-logo.avif" alt="Copilot+ PC" onerror="this.style.display=\'none\'">'
     page = page.replace("{{SIDEBAR_LOGO}}", sidebar_logo)
+
+    # Industry Packs: inject stub banner script if stub mode
+    _stub_script = ""
+    if _INDUSTRY_PACKS_ACTIVE and RESOLVED_CONFIG:
+        _is_stub = (RESOLVED_CONFIG.get("status") == "stub" or
+                    RESOLVED_CONFIG.get("brand_status") == "stub")
+        if _is_stub:
+            _ind_name = RESOLVED_CONFIG.get("display_name", "Unknown")
+            _stub_script = (
+                '<script>'
+                'document.addEventListener("DOMContentLoaded",function(){'
+                'var b=document.getElementById("industry-stub-banner");'
+                'if(b){b.style.display="block";'
+                'var n=document.getElementById("stubIndustryName");'
+                'if(n)n.textContent=' + json.dumps(_ind_name) + ';}'
+                '});</script>')
+    page = page.replace("</body>", _stub_script + "</body>")
+
     return render_template_string(page)
 
 @app.route('/upload-to-demo', methods=['POST'])

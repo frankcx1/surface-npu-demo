@@ -1,0 +1,28 @@
+schema_version: 1
+extends: industries/financial-services/verticals/insurance.yaml
+brand_id: zava-insurance
+display_name: "Zava Insurance"
+brand_status: stub
+
+brand:
+  primary: "#f7f9fb"
+  primary_end: "#ebeff3"
+  accent: "#1B4965"
+  accent_rgb: "27,73,101"
+  hover: "#5FA8D3"
+  theme: "light"
+  logo: "zava-logo.png"
+  company_name: "Zava Insurance"
+
+advisor:
+  name: "Placeholder Adjuster"
+  title: "Senior Claims Adjuster"
+  company: "Zava Insurance"
+  phone: "(555) 000-0000"
+  email: "adjuster@zavainsurance.example"
+  organization_unit: "Claims Division"
+
+customer:
+  name: "Demo Policyholder"
+  full_name: "Demo J. Policyholder"
+  identifier: ""

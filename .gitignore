@@ -44,3 +44,6 @@ dist/
 build/
 .d365_token_cache.json
 .graph_token_cache.json
+
+# LoRA handoff bundle (2.2 GB, not for git)
+marcus_reed_lora_handoff/

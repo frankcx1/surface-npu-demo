@@ -1,6 +1,8 @@
-# Surface NPU Demo — Local AI Assistant
+# Branch of the Future — On-Device AI for Banking
 
-A branded demo application showcasing on-device AI capabilities using the Neural Processing Unit (NPU) on Microsoft Surface Copilot+ PCs. Supports both **Intel Core Ultra (Lunar Lake)** and **Qualcomm Snapdragon X (ARM64)** — silicon is auto-detected at startup.
+A white-labeled demo application showcasing on-device AI capabilities using the Neural Processing Unit (NPU) on Microsoft Surface Copilot+ PCs. Built for live, in-person executive demos to bank CXOs, proving that a single Surface device can run a full AI advisor workstation with zero cloud dependencies and zero data egress.
+
+Supports **Intel Core Ultra** (Lunar Lake / Panther Lake) with auto-detection at startup. Optional live integrations with Microsoft Graph and Dynamics 365 fall back gracefully to local demo data when offline.
 
 **100% local processing — your data never leaves the device.**
 
@@ -8,134 +10,79 @@ A branded demo application showcasing on-device AI capabilities using the Neural
 
 ## Features
 
-### Collapsible Sidebar Navigation
-App-shell layout with a Claude/ChatGPT-style collapsible sidebar for tab navigation. Sidebar state persists across sessions via localStorage. Mobile-responsive with hamburger menu + backdrop overlay.
-
-### Five Tabs
+### Six Tabs
 
 | Tab | Description |
 |-----|-------------|
-| **Device Intelligence** *(default)* | IT Pro device posture — health checks, security audit, and natural language file search |
-| **My Day** | Executive morning briefing from calendar, email, and task data with cross-referenced insights |
-| **Auditor** | Dual-mode clean room analysis: contract/NDA risk analysis + marketing CELA compliance review |
-| **ID Verification** | Camera capture + OCR + AI parsing of driver licenses — fully offline |
-| **Field Inspection** | On-site assessment copilot with voice capture, camera, pen annotation, reports, translation, and escalation |
+| **Advisor Assistant** *(default)* | Chat interface with tool-calling AI agent, D365 CRM integration, and optional Marcus Reed wealth advisor persona |
+| **Morning Briefing** | Executive morning briefing from live Outlook calendar/email (via Graph) or local demo data |
+| **PII Guard** | Dual-mode compliance analysis: contract/NDA risk analysis + marketing CELA compliance review |
+| **ID & Check Verify** | Camera capture + OCR + AI parsing of driver licenses and checks, with D365 deposit logging and pen signature |
+| **Live Assist** | Real-time meeting copilot with voice transcription, AI advisor insight cards, and sentiment analysis |
+| **Meeting Notes** | Post-meeting workflow with voice/text capture, document classification, pen annotation, reports, translation, and D365 posting |
 
 ---
 
-### Tab 1: Device Intelligence (AI Agent)
+### Tab 1: Advisor Assistant
 
-Three capability chips for IT Pro device posture assessment:
+AI-powered chat agent with tool-calling capabilities:
 
-#### Device Health
-Runs 9 deterministic PowerShell collectors, then a single AI call to produce an enterprise IT health assessment:
+| Feature | Detail |
+|---------|--------|
+| **Agent tools** | File read/write, PowerShell exec, D365 customer lookup, check-in queue, activity logging, calendar, meeting prep |
+| **Marcus Reed persona** | When Zava Financial brand is active, chat routes through a wealth advisor persona with retirement/estate/college savings specialization and a financial advice safety gate |
+| **Device Intelligence** | 9 PowerShell health checks + AI summary, 28 security checks + weighted grading, natural language file search |
+| **Document workflow** | Upload PDF/DOCX/TXT/MD, AI summarization, PII detection |
 
-| Check | What it collects |
-|-------|-----------------|
-| Disk Space | Drive usage percentage via `Win32_LogicalDisk` |
-| Battery | Charge level and AC/battery status |
-| System Info | OS version, boot time, uptime in days |
-| Network Adapters | Active adapters, link speed, status |
-| Defender Antivirus | AV enabled, real-time protection, signature age, last scan |
-| Firewall Profiles | Domain/Private/Public profile status and inbound/outbound actions |
-| Listening Ports | Open TCP ports with owning process names |
-| Windows Updates | Last 3 installed hotfixes |
-| System Errors | Recent Critical/Error/Warning events from the System log |
-
-**Architecture:** Python does the math (threshold comparisons for disk %, uptime, signature age), AI does the narrative (executive summary + per-area PASS/WARN/FAIL ratings + priority action). Learn More buttons on WARN/FAIL findings route contextual questions to the AI for deeper explanation.
-
-#### Security Audit
-24 PowerShell security checks covering chip-to-cloud posture with weighted grading:
-
-| Category | Checks |
-|----------|--------|
-| Hardware root of trust | TPM, Secure Boot |
-| Disk encryption | BitLocker |
-| Virtualization-based security | VBS, Credential Guard, HVCI |
-| Defender stack | AV (4 layers), EDR (Sense), SmartScreen, Network Protection, ASR rules, Controlled Folder Access |
-| Network hardening | Firewall, SMBv1, Network Profile, WinRM, RDP |
-| Execution policy | PowerShell Execution Policy, AppLocker/WDAC, AutoPlay |
-| Identity & access | Local Admins, Local Users (stale detection), Windows Hello, UAC |
-| Maintenance | Patch Health, Certificate Health, LSASS/WDigest |
-| Password policy | Minimum length, complexity, lockout |
-
-**Grading:** Weighted scoring with critical checks (Secure Boot, BitLocker, Defender AV, Firewall, TPM, UAC, LSASS) counting heavier — 2 critical FAILs = automatic F. AI receives only compact ratings text (not raw scan data) to stay within 4K context budget. Typical run: ~32s for 24 checks + AI summary.
-
-#### Device Search
-Natural language file search using a two-model-call pattern:
-1. AI parses natural language query into keywords, extensions, and recency filters
-2. PowerShell searches Documents, Desktop, Downloads under USERPROFILE
-3. AI summarizes results (capped at 20, sorted by modified date)
-
-Inline search bar UI with Enter key + Search button.
-
----
-
-### Tab 2: My Day — Executive Morning Briefing
+### Tab 2: Morning Briefing
 
 | Feature | What it does |
 |---------|-------------|
-| **Brief Me** | Cross-references calendar, emails, and tasks into an executive briefing with ACTIONS, PEOPLE TO KNOW, and KEY WARNINGS |
-| **Top 3 Focus** | AI identifies the three highest-priority items for the day |
-| **Tomorrow Preview** | High-level look at the next day's schedule |
-| **Triage Inbox** | Categorizes all emails into URGENT / ACTION NEEDED / FYI |
-| **Prep for Next Meeting** | Generates a prep brief for the first substantive meeting |
+| **Brief Me** | Cross-references calendar, emails, and tasks into an executive briefing with ACTIONS, PEOPLE TO KNOW, KEY WARNINGS |
+| **Top 3 Focus** | AI identifies three highest-priority items |
+| **Tomorrow Preview** | Next day schedule overview |
+| **Triage Inbox** | Categorizes emails into URGENT / ACTION NEEDED / FYI |
+| **Prep for Next Meeting** | Generates prep brief with attendee profiles and talking points |
 
-Data cards at the top show counts (Emails, Events Today, Tasks Due) — click to expand and peek at raw data. Data sources: calendar (.ics), emails (.eml), tasks (.csv) from `demo_data/My_Day/`.
+**Live data:** When Microsoft Graph is connected, pulls real Outlook calendar events and inbox emails. Falls back to local `.ics`, `.csv`, and `.eml` demo files when offline.
 
----
-
-### Tab 3: Auditor — Clean Room Analysis
-
-POC disclaimer banner displayed at top of tab.
+### Tab 3: PII Guard
 
 #### Contract / Legal Review
-Structured risk analysis of contracts and NDAs. Upload or load a demo document — AI performs clause-by-clause assessment with risk levels and escalation recommendations.
+Structured risk analysis of contracts and NDAs with clause-by-clause assessment, risk levels, and escalation recommendations.
 
 #### Marketing / Campaign Review
-CELA compliance check for marketing assets using document-first architecture:
-- Sends actual document text to the model (not pre-extracted phrases)
-- Model reads the document and identifies compliance claims itself
-- Progressive reveal: claims card → verdict (SELF-SERVICE OK / CELA INTAKE REQUIRED) → summary → escalation consent flow
-- PII scanner runs on both flows — redacts SSNs, emails, phone numbers, and person names before any escalation
+CELA compliance check using document-first architecture — AI reads the full document and identifies claims, then renders verdict (SELF-SERVICE OK / CELA INTAKE REQUIRED).
 
-#### Two-Brain Router
-Local AI attempts analysis first → knowledge base search → decision card → optional escalation to frontier model with explicit user consent and Trust Receipt logging.
+**PII scanner** detects SSNs, emails, phone numbers, and person names. Redacts before any escalation to frontier models. Two-Brain Router handles local-first analysis with optional cloud escalation via explicit consent.
 
----
+### Tab 4: ID & Check Verify
 
-### Tab 4: ID Verification — Offline OCR + AI
+| Mode | Flow |
+|------|------|
+| **ID Verification** | Camera capture → Tesseract.js OCR → AI field extraction (name, DOB, address, expiration, validity) |
+| **Check Deposit** | Camera capture → OCR → AI verification (amount, routing, account) → D365 transaction logging → pen signature |
 
-POC disclaimer banner displayed at top of tab.
+All OCR runs locally via bundled Tesseract.js — no CDN dependency.
 
-| Step | Engine | Location |
-|------|--------|----------|
-| 1. Image Capture | Browser API | Local |
-| 2. Text Extraction (OCR) | Tesseract.js 5.1.1 | Local (bundled) |
-| 3. AI Analysis | Phi-4 Mini on NPU | Local |
+### Tab 5: Live Assist
 
-Camera capture → OCR → AI parsing extracts: name, address, DOB, ID number, expiration, state, class, and validity status. All Tesseract.js files served from Flask — no CDN dependency.
+Real-time meeting copilot:
+- **Voice transcription** via Web Speech API (or 19-turn demo script fallback)
+- **AI insight cards** generated in real-time from transcript chunks (1-3 actionable bullets, max 12 words each)
+- **Sentiment analysis** per utterance (POSITIVE / NEUTRAL / CAUTIOUS)
+- **Post-session translation** (EN/ES)
 
----
+### Tab 6: Meeting Notes
 
-### Tab 5: Field Inspection — On-Site Assessment Copilot
-
-Seven-milestone build targeting MWC Barcelona demo (March 2-5, 2026). Four-panel workspace: form, photo, report, bottom bar.
-
-| Milestone | Capability | Key Detail |
-|-----------|-----------|------------|
-| **M1** | Scaffold | Four-panel grid layout, tab switching, CSS |
-| **M2** | Voice Capture + Field Extraction | Win+H dictation → AI extracts location, datetime, issue, source into form fields |
-| **M3** | Camera Capture + Classification | getUserMedia camera with front/rear flip, 5 demo presets, three-tier classification (Phi Silica Vision → demo presets → Phi-4 Mini text fallback) |
-| **M4** | Pen Annotation | Dual-canvas overlay in photo lightbox, Pointer Events ink drawing, OCR extraction of handwritten notes (three-tier: Phi Silica Vision → Phi-4 Mini → hardcoded fallback) |
-| **M5** | Report Generation | AI generates professional HTML report with summary, risk rating, and next steps from collected fields + findings |
-| **M6** | Translation | AI translates report to Spanish, language toggle with side-by-side flash |
-| **M7** | Router Escalation + Dashboard | Escalation dialog on 60-74% confidence findings, "Escalate to Cloud" vs "Keep Local" options, dashboard tally (7 local AI tasks vs 0 cloud tasks) with cumulative tokenomics |
-
-**Classification three-tier path:**
-1. Demo preset → hardcoded classifications (1.5s simulated)
-2. Phi Silica Vision → image to Vision Service on localhost:5100 → NPU inference → category mapping
-3. Phi-4 Mini text fallback → filename hint → structured JSON classification
+Post-meeting workflow with seven capabilities:
+1. **Voice/text capture** — Win+H dictation or scripted input → AI extracts client, location, products, source
+2. **Camera + classification** — Three-tier fallback: Phi Silica Vision → demo presets → Phi-4 Mini text
+3. **Pen annotation** — Dual-canvas overlay with pressure-sensitive ink
+4. **Report generation** — AI generates Client Meeting Summary with risk rating and next steps
+5. **Translation** — EN/ES language toggle
+6. **D365 posting** — Log meeting notes to customer timeline
+7. **Escalation workflow** — Dialog on low-confidence classifications
 
 ---
 
@@ -143,12 +90,15 @@ Seven-milestone build targeting MWC Barcelona demo (March 2-5, 2026). Four-panel
 
 | Feature | Description |
 |---------|-------------|
-| **Offline Mode** | Go Offline / Go Online toggle in sidebar footer — works with Airplane Mode enabled |
-| **Local AI Savings Widget** | Shows cost saved + CO2 avoided vs cloud inference |
-| **Approval Gates** | Destructive agent actions require explicit user approval |
-| **Audit Trail** | Every tool execution logged with timestamp, tool name, arguments, success/failure, elapsed time |
-| **Document Upload** | File picker with inline Summarize and Detect PII buttons |
-| **CELA Disclaimers** | POC banners on Auditor + ID Verification tabs; POC footer in sidebar |
+| **Branch Concierge** | VIP arrival awareness system — bell icon, arrivals panel with tier badges, AI greeting briefs with product recommendations |
+| **Product Recommendations** | Rule-based cross-sell engine: 27 products, 13 triggers, 5 penetration tiers from `product_catalog.yaml` |
+| **Writing Assistant** | Email polishing via Phi Silica TextRewriter + sending via Microsoft Graph |
+| **Performance Monitor** | `Ctrl+Shift+M` overlay showing live CPU/GPU/NPU/memory stats via win32pdh |
+| **Brand Config System** | White-label per customer: colors, logos, tab names, advisor identity, personas, demo script |
+| **Offline Mode** | Go Offline / Go Online toggle — works with Airplane Mode for clean room demos |
+| **Local AI Savings Widget** | Cost saved + CO2 avoided vs cloud inference |
+| **Demo Hotkeys** | `Ctrl+Shift+M` (perf), `Ctrl+Shift+C` (carbon toggle), `Ctrl+Shift+R` (reset) |
+| **Audit Trail** | Every tool execution logged with timestamp, tool, args, result, elapsed time |
 
 ---
 
@@ -157,28 +107,69 @@ Seven-milestone build targeting MWC Barcelona demo (March 2-5, 2026). Four-panel
 ```
 Browser (localhost:5000)
     |
-Flask backend (npu_demo_flask.py, ~11,100 lines, single file)
+Flask backend (npu_demo_flask.py, ~16,400 lines, single file)
     |
-    +-- Foundry Local runtime (dynamic port)
+    +-- Foundry Local runtime (dynamic port, discovered via SDK)
     |       |
-    |       +-- Intel: Phi-4 Mini 3.8B on Core Ultra NPU (OpenVINO)
-    |       +-- Qualcomm: Phi-3.5 Mini on Snapdragon X NPU (QNN)
+    |       +-- Intel: Phi-4 Mini on Core Ultra NPU (OpenVINO)
+    |       +-- Qualcomm: Qwen 2.5 7B on Snapdragon X NPU (QNN)
     |
     +-- Vision Service (localhost:5100, C# MSIX)
-            |
-            +-- Phi Silica ImageDescriptionGenerator on NPU
+    |       |
+    |       +-- Phi Silica Vision (image classification, OCR)
+    |       +-- Phi Silica TextRewriter (email polishing)
+    |
+    +-- Microsoft Graph API (calendar, email, send mail -- optional)
+    +-- Dynamics 365 Dataverse API (CRM, customer lookup -- optional)
+    +-- MCP D365 Server (mcp-d365/server.py, 4 tools -- optional)
 ```
 
-- **No VS Code or AI Toolkit required** — Foundry Local SDK handles model download and runtime automatically
-- **No cloud dependencies** — everything runs on-device
+- **No cloud dependencies** — everything runs on-device; Graph/D365 are optional live integrations
 - **OpenAI-compatible API** — standard chat completions interface via Foundry Local SDK
-- **Cross-platform** — auto-detects Intel vs Qualcomm at startup (WMI CPU name as authoritative source on ARM64 where `platform.machine()` may report AMD64 under emulation)
+- **Auto-detection** — WMI CPU name as authoritative source (not `platform.machine()`)
+- **Single file** — Python backend + HTML/CSS/JS all inline in `npu_demo_flask.py`
+
+---
+
+## Brand Configuration
+
+The app is white-labeled per customer. Three brands ship in the repo:
+
+| Brand | Theme | Advisor | Persona |
+|-------|-------|---------|---------|
+| **Zava Financial** | Light teal (#183D4C) | Sarah Chen | Marcus Reed (wealth advisor) |
+| **Flagstar Bank** | Orange (#f18f12) | Alan Thornbury | — |
+| **Bank of America** | Navy (#012169) | Michael Torres | — |
+
+**Switch brands:**
+```cmd
+switch-brand.cmd zava       # or: flagstar, bofa
+# Then restart the Flask app
+```
+
+Each brand has its own `demo_config.yaml` with colors, logos, tab names, advisor identity, personas, demo script, and industry context. See `docs/TECHNICAL_GUIDE.md` for the full config structure.
+
+---
+
+## Persona System
+
+The app supports AI personas — domain-specialized advisor characters with distinct knowledge, tone, and compliance guardrails.
+
+**Marcus Reed** (Zava Financial):
+- Senior Wealth Advisor specializing in retirement, estate planning, college savings
+- Warm, consultative tone; plain English; asks clarifying questions before recommending
+- **Financial advice safety gate** blocks rate quotes, fund tickers, tax filing advice, and dollar projections
+- Defined in `configs/personas/marcus_reed.yaml`
+
+When the Zava brand is active, the chat tab automatically routes through Marcus. The safety gate runs post-processing on every response to ensure compliance with banking regulations.
+
+See `docs/TECHNICAL_GUIDE.md` and `docs/ADDING_A_NEW_CAPABILITY.md` for how to add new personas.
 
 ---
 
 ## Quick Start
 
-**New to this?** See the **[Quick Start Guide for Non-Developers](docs/QUICK_START.md)** — step-by-step instructions with no coding required, plus a troubleshooting prompt you can paste into any AI assistant if you get stuck.
+**New to this?** See the **[Quick Start Guide for Non-Developers](docs/QUICK_START.md)** — step-by-step instructions with no coding required.
 
 ### Prerequisites
 
@@ -199,7 +190,7 @@ pip install -r requirements.txt
 python npu_demo_flask.py
 ```
 
-On first run, Foundry Local will download the Phi-4 Mini model (~3 GB). Subsequent launches start in seconds.
+On first run, Foundry Local downloads the model (~3 GB). Subsequent launches start in seconds.
 
 **Important:** The pip package `foundry-local` (v0.0.1) is a squatted fake. The real SDK is `foundry-local-sdk`.
 
@@ -209,74 +200,57 @@ On first run, Foundry Local will download the Phi-4 Mini model (~3 GB). Subseque
 
 | File | Description |
 |------|-------------|
-| `npu_demo_flask.py` | Main demo application (~11,100 lines, single file with HTML/CSS/JS inline) |
-| `run.bat` | One-click launcher — installs deps and copies demo data if needed |
-| `setup.ps1` | First-time setup script (Python, Foundry Local, Vision Service, all deps) |
+| `npu_demo_flask.py` | Main app (~16,400 lines: Python + HTML + CSS + JS, single file) |
+| `demo_config.yaml` | Active brand config (YAML, loaded at startup) |
+| `product_catalog.yaml` | Product catalog for cross-sell recommendations |
+| `configs/` | Per-customer brand configs (zava, flagstar, bofa) + persona definitions |
+| `switch-brand.cmd` | Brand switching script |
+| `run.bat` | One-click launcher |
+| `setup.ps1` | First-time device setup script |
 | `requirements.txt` | Python dependencies |
 | `vision-service/` | C# Phi Silica Vision microservice (MSIX, localhost:5100) |
+| `mcp-d365/server.py` | MCP server for D365 Dataverse (4 tools) |
 | `tests/` | Test suites (283 tests across 3 files) |
-| `docs/QUICK_START.md` | Non-developer setup guide with troubleshooting AI prompt |
-| `docs/TECHNICAL_GUIDE.md` | Detailed technical documentation |
-| `docs/FIELD_INSPECTION_WORKFLOW.md` | Field Inspection on-device AI workflow write-up |
-| `docs/DEMO_SCRIPT.md` | Demo flow script |
-| `docs/specs/` | Feature specifications |
-| `docs/marketing/` | Social posts, exec summaries, demo scripts |
-| `Field_Inspection_Copilot_Build_Spec.md` | Build spec for Field Inspection (7 milestones) |
-| `surface-logo.png` | Microsoft Surface logo |
-| `copilot-logo.avif` | Copilot+ PC logo |
+| `demo_data/` | Demo calendar, emails, tasks, contracts, inspection photos |
+| `fonts/` | Urbanist font files for light-theme branding |
 | `tesseract/` | Offline OCR engine (Tesseract.js + English training data) |
-| `demo_data/` | Sample calendar, emails, tasks, contracts, inspection photos |
-
----
-
-## Demo Data
-
-The `demo_data/` folder ships with the repo and is read directly by the app:
-
-| Path | Contents |
-|------|----------|
-| `My_Day/calendar.ics` | Executive calendar for Feb 7-8, 2026 |
-| `My_Day/tasks.csv` | Priority task list (3 high, 3 medium, 1 low) |
-| `My_Day/Inbox/*.eml` | 15 sample emails |
-| `contract_nda_vertex_pinnacle.txt` | NDA contract for Auditor demo |
-| `Board_Strategy_Review_Transcript_Jan2026.txt` | Meeting transcript |
-| `inspection_photos/` | 5 preset photos (water damage, structural crack, mold, electrical hazard, trip hazard) |
-| `*.txt`, `*.pdf` | Additional contracts, transcripts, strategy documents |
+| `docs/` | Technical guide, demo scripts, capability docs |
 
 ---
 
 ## Demo Flow
 
-### Device Intelligence (Default Tab)
-1. Click **Device Health** — watch 9 PowerShell checks stream in, then AI assessment with Learn More buttons
-2. Click **Security Audit** — 24 checks with weighted grading and AI posture summary
-3. Click **Device Search** — type a natural language query like "find PowerPoint files from last week"
-4. Upload a document → click **Summarize** or **Detect PII** inline
+### Advisor Assistant (Default Tab)
+1. Chat with the AI agent — try "Prep Next Client" or "Customer Queue" chips
+2. Upload a document → click **Summarize** or **Detect PII**
+3. If Zava brand: meet Marcus Reed, the wealth advisor persona
 
-### My Day — Executive Briefing
-1. Navigate to **My Day** in the sidebar
-2. Click **Brief Me** — AI cross-references calendar, emails, and tasks
-3. Click **Top 3 Focus** for prioritized action items
-4. Click **Tomorrow** for next day preview
+### Morning Briefing
+1. Click **Brief Me** — AI cross-references calendar, emails, and tasks
+2. Click **Top 3 Focus** for prioritized action items
+3. Click **Triage** to categorize inbox
 
-### Auditor — Clean Room Analysis
-1. Navigate to **Auditor** in the sidebar
-2. Choose **Contract / Legal Review** or **Marketing / Campaign Review**
-3. Go offline (toggle in sidebar footer) for clean room compliance
-4. Upload or load a demo document — watch progressive analysis flow
+### PII Guard
+1. Choose **Contract / Legal Review** or **Marketing / Campaign Review**
+2. Go offline (sidebar toggle) for clean room compliance demo
+3. Upload or load a demo document — watch progressive analysis
 
-### ID Verification — Offline OCR
-1. Navigate to **ID Verification** in the sidebar
-2. Select camera → **Start Camera** → position a driver license
-3. **Capture ID** → **Analyze ID** — 3-step pipeline runs entirely on-device
+### ID & Check Verify
+1. Select camera → **Capture** → position ID or check
+2. **Analyze** — 3-step pipeline runs entirely on-device
+3. For checks: view D365 customer profile, sign with pen, log deposit
 
-### Field Inspection — On-Site Copilot
-1. Navigate to **Field Inspection** in the sidebar
-2. Dictate inspection notes (Win+H) or click scripted input → watch AI extract fields
-3. Capture or load demo photos → AI classifies with confidence scores
-4. Annotate photos with pen → AI extracts handwritten notes
-5. Generate report → translate to Spanish → review escalation flow
-6. View dashboard tally: 7 local AI tasks, 0 cloud tasks
+### Live Assist
+1. Click **Start Voice** or **Run Demo Script**
+2. Watch AI insight cards appear in real-time
+3. Monitor sentiment analysis per utterance
+4. Translate session to Spanish
+
+### Meeting Notes
+1. Dictate notes (Win+H) or use scripted input → AI extracts fields
+2. Capture or load demo photos → AI classifies with confidence scores
+3. Annotate photos with pen → AI extracts notes
+4. Generate report → translate → post to D365
 
 ### The "Wow" Moment
 1. **Turn on Airplane Mode**
@@ -285,50 +259,28 @@ The `demo_data/` folder ships with the repo and is read directly by the app:
 
 ---
 
-## Vision Service
-
-C# ASP.NET Core microservice on localhost:5100 wrapping Phi Silica `ImageDescriptionGenerator` (Windows App SDK 1.8 stable). MSIX-packaged with `systemAIModels` capability.
-
-| Endpoint | Purpose |
-|----------|---------|
-| `/health` | Service and model readiness check |
-| `/describe` | Generate image description |
-| `/classify` | Classify image into categories |
-| `/extract-text` | OCR/handwriting extraction from images |
-
-Build/deploy scripts at `C:\temp\rebuild-msix.ps1` and `C:\temp\launch-vision.ps1`.
-
----
-
-## Security
-
-| Measure | Detail |
-|---------|--------|
-| **File system jailing** | All read/write restricted to `demo_data/` via `os.path.realpath()` validation |
-| **PowerShell allowlist** | Only approved cmdlets for agent tool calls |
-| **Network binding** | Flask bound to `127.0.0.1` only |
-| **Path traversal prevention** | Static routes reject `..` and validate realpath |
-| **Upload restrictions** | Extension allowlist, `secure_filename()`, 16 MB limit |
-| **PII scanner** | Detects SSNs, emails, phone numbers, person names; redacts before escalation |
-| **Approval gates** | Destructive agent actions require explicit user approval |
-| **Audit trail** | Every tool execution logged with timestamp, tool, args, result, elapsed time |
-
----
-
 ## Technical Details
 
 | Detail | Value |
 |--------|-------|
-| **Framework** | Flask (Python) |
+| **Framework** | Flask (Python), single file |
 | **AI Runtime** | Foundry Local SDK (dynamic endpoint) |
-| **Text Model (Intel)** | Phi-4 Mini 3.8B (OpenVINO, NPU) |
-| **Text Model (Qualcomm)** | Phi-3.5 Mini (QNN, NPU) |
-| **Vision Model** | Phi Silica ImageDescriptionGenerator (Windows App SDK 1.8) |
-| **OCR** | Tesseract.js 5.1.1 (runs in browser, bundled locally) |
-| **Tool Calling** | Text-based `[TOOL_CALL]` shim (model parses structured markers) |
-| **Token Budget** | ~1,000 input tokens (~4K chars), 1,536 max output tokens |
-| **UI** | Collapsible sidebar, app-shell layout, mobile-responsive |
+| **Text Model (Intel)** | Phi-4 Mini (OpenVINO, NPU) |
+| **Text Model (Qualcomm)** | Qwen 2.5 7B (QNN, NPU) |
+| **Vision Model** | Phi Silica Vision (Windows App SDK 1.8) |
+| **Text Rewriter** | Phi Silica TextRewriter (Windows App SDK 1.8) |
+| **OCR** | Tesseract.js 5.1.1 (browser, bundled locally) |
+| **CRM** | Dynamics 365 Dataverse (MSAL device code, optional) |
+| **Calendar/Email** | Microsoft Graph API (optional) |
+| **MCP Server** | FastMCP with 4 D365 tools |
+| **Tool Calling** | Text-based `[TOOL_CALL]` shim |
+| **Token Budget** | ~1,000 input tokens, 1,536 max output |
+| **Endpoints** | 69 Flask routes |
+| **Tabs** | 6 configurable tabs |
+| **Products** | 27 products, 13 cross-sell triggers, 5 penetration tiers |
 | **Tests** | 283 tests across 3 test files |
+| **Brands** | 3 (Zava, Flagstar, BofA) with YAML config switching |
+| **Personas** | 1 (Marcus Reed) with safety gate |
 
 ---
 
@@ -338,15 +290,32 @@ Build/deploy scripts at `C:\temp\rebuild-msix.ps1` and `C:\temp\launch-vision.ps
 |-----------|----------------|------------|
 | Brief Me | 40-50s | ~5W sustained |
 | Agent chat (simple) | 5-10s | ~5W |
-| Security Audit (24 checks + AI) | ~32s | ~5W |
+| Security Audit (28 checks + AI) | ~32s | ~5W |
 | Marketing CELA review | 15-35s | ~5W |
 | OCR (Tesseract.js) | 3-8s | Varies (CPU/WASM) |
-| Field Inspection: transcribe | 5-10s | ~5W |
-| Field Inspection: classify (demo) | 1.5s | Simulated |
-| Field Inspection: report | 10-20s | ~5W |
-| Field Inspection: translate | 10-20s | ~5W |
+| Live Assist: analyze | 5-10s | ~5W |
+| Meeting Notes: report | 10-20s | ~5W |
+| Email polish (TextRewriter) | 3-8s | ~5W |
+| Greeting brief (concierge) | 5-10s | ~5W |
+| Product recommendations | <1s | Rule engine |
 
 Energy: ~0.06 Wh per briefing (~0.1% of a 58 Wh battery).
+
+---
+
+## Security
+
+| Measure | Detail |
+|---------|--------|
+| **File system jailing** | All read/write restricted to `demo_data/` via `os.path.realpath()` |
+| **PowerShell allowlist** | Only approved cmdlets for agent tool calls |
+| **Network binding** | Flask on `127.0.0.1` only |
+| **Path traversal prevention** | Static routes reject `..` and validate realpath |
+| **Upload restrictions** | Extension allowlist, `secure_filename()`, 16 MB limit |
+| **PII scanner** | Detects SSNs, emails, phones, names; redacts before escalation |
+| **Financial advice gate** | Blocks rate quotes, fund tickers, tax advice in persona mode |
+| **Approval gates** | Destructive agent actions require explicit user approval |
+| **Audit trail** | Every tool execution logged |
 
 ---
 
@@ -354,14 +323,16 @@ Energy: ~0.06 Wh per briefing (~0.1% of a 58 Wh battery).
 
 | Issue | Solution |
 |-------|----------|
-| "Connection refused" error | Foundry Local may still be starting — wait 10-15 seconds and retry |
-| Model not responding | Restart the app — Foundry Local will reinitialize |
-| Brief Me timeout | Normal on first run while model loads; subsequent calls are faster |
-| Camera not detected | Check browser permissions, try different camera from dropdown |
-| OCR quality poor | Improve lighting, hold ID flat, ensure camera is focused |
+| "Connection refused" | Foundry Local may still be starting — wait 10-15s and retry |
+| Model not responding | Restart the app — Foundry Local reinitializes |
+| Brief Me timeout | Normal on first run while model loads |
+| Camera not detected | Check browser permissions, try different camera |
+| OCR quality poor | Improve lighting, hold document flat |
 | Stale code after edits | Delete `__pycache__/npu_demo_flask.cpython-*.pyc` and restart |
-| Security audit checks fail | Some checks require standard user permissions |
-| Vision Service not responding | Check MSIX is installed and running: `C:\temp\launch-vision.ps1` |
+| Brand changes not showing | Run `switch-brand.cmd <brand>` and restart |
+| Vision Service not responding | Check MSIX installed and running |
+| D365/Graph auth expired | Re-authenticate via device code flow |
+| Marcus persona not loading | Check `configs/personas/marcus_reed.yaml` exists |
 
 ---
 

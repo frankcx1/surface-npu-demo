@@ -1,0 +1,28 @@
+schema_version: 1
+extends: industries/manufacturing/industry.yaml
+brand_id: zava-manufacturing
+display_name: "Zava Manufacturing"
+brand_status: stub
+
+brand:
+  primary: "#f7f9fb"
+  primary_end: "#ebeff3"
+  accent: "#2E4057"
+  accent_rgb: "46,64,87"
+  hover: "#048A81"
+  theme: "light"
+  logo: "zava-logo.png"
+  company_name: "Zava Manufacturing"
+
+advisor:
+  name: "Placeholder Engineer"
+  title: "Quality Engineer"
+  company: "Zava Manufacturing"
+  phone: "(555) 000-0000"
+  email: "engineer@zavamfg.example"
+  organization_unit: "Plant Operations"
+
+customer:
+  name: "Demo Operator"
+  full_name: "Demo J. Operator"
+  identifier: ""

@@ -1,0 +1,28 @@
+schema_version: 1
+extends: industries/healthcare/verticals/pharma.yaml
+brand_id: zava-pharma
+display_name: "Zava Pharma"
+brand_status: stub
+
+brand:
+  primary: "#f7f9fb"
+  primary_end: "#ebeff3"
+  accent: "#6A0572"
+  accent_rgb: "106,5,114"
+  hover: "#AB47BC"
+  theme: "light"
+  logo: "zava-logo.png"
+  company_name: "Zava Pharma"
+
+advisor:
+  name: "Placeholder MSL"
+  title: "Medical Science Liaison"
+  company: "Zava Pharma"
+  phone: "(555) 000-0000"
+  email: "msl@zavapharma.example"
+  organization_unit: "Medical Affairs"
+
+customer:
+  name: "Demo HCP"
+  full_name: "Demo J. HCP"
+  identifier: ""

@@ -1,0 +1,19 @@
+# banking.yaml - Banking vertical for Financial Services
+# Banking IS the default vertical for financial services. This file adds only
+# banking-specific overrides; everything else inherits from industry.yaml.
+
+extends: industries/financial-services/industry.yaml
+
+schema_version: 1
+vertical_id: banking
+display_name: "Banking"
+status: active
+
+# ---------------------------------------------------------------------------
+# Compliance -- add banking-specific regime
+# ---------------------------------------------------------------------------
+compliance:
+  regimes_append:
+    - id: NYDFS_500
+      name: "NYDFS 23 NYCRR 500"
+      description: "New York Department of Financial Services cybersecurity regulation requiring risk assessments, encryption, and incident reporting for banks and financial services companies."

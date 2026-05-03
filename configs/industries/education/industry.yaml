@@ -1,0 +1,158 @@
+# industry.yaml -- Education
+# Schema for the industry-packs configuration layer.
+# Status: stub -- all prompts are placeholders, not yet authored.
+
+schema_version: 1
+
+industry_id: education
+display_name: "Education"
+status: stub
+
+# ---------------------------------------------------------------------------
+# Vocabulary -- 10 tokens that the prompt layer interpolates everywhere
+# ---------------------------------------------------------------------------
+vocabulary:
+  subject: "student"
+  subject_plural: "students"
+  practitioner: "faculty"
+  practitioner_plural: "faculty"
+  engagement: "appointment"
+  engagement_plural: "appointments"
+  record: "file"
+  records_system: "SIS"
+  organization: "department"
+  catalog_item: "course"
+
+# ---------------------------------------------------------------------------
+# Compliance
+# ---------------------------------------------------------------------------
+compliance:
+  regimes:
+    - FERPA
+  primary_safety_gate: passthrough          # stub -- no gate logic yet
+  required_disclosures:
+    - "All processing occurs on-device. No student data leaves this machine."
+
+# ---------------------------------------------------------------------------
+# Integrations
+# ---------------------------------------------------------------------------
+integrations:
+  records_system:
+    name: Ellucian Banner
+    alternates:
+      - Workday Student
+      - PowerSchool
+  identity:
+    name: null                              # stub -- no identity provider yet
+  productivity:
+    name: "Microsoft 365"
+
+# ---------------------------------------------------------------------------
+# Concierge
+# ---------------------------------------------------------------------------
+concierge:
+  enabled: true
+  # Priority convention: 0 = highest (like P0/P1 severity)
+  tiers:
+    - id: priority
+      label: "Priority"
+      priority: 0
+      description: "Urgent student situations requiring immediate faculty attention"
+    - id: scheduled
+      label: "Scheduled"
+      priority: 1
+      description: "Pre-scheduled advising appointments"
+    - id: walk_in
+      label: "Walk-In"
+      priority: 2
+      description: "Drop-in office hours and unscheduled visits"
+  greeting_prompt_id: concierge_greeting_brief
+
+# ---------------------------------------------------------------------------
+# Tabs -- maps the 6 canonical tab slots to industry-appropriate labels
+# ---------------------------------------------------------------------------
+tabs:
+  chat:
+    name: "Faculty Assistant"
+    sub: "Knowledge & Tools"
+  day:
+    name: "Daily Briefing"
+    sub: "Daily Prep"
+  auditor:
+    name: "FERPA Guard"
+    sub: "Compliance Check"
+  id:
+    name: "Student ID & Records"
+    sub: "Scan & Validate"
+  live:
+    name: "Advising Assist"
+    sub: "Real-Time AI Assist"
+  field:
+    name: "Advising Notes"
+    sub: "Post-Session Workflow"
+
+# ---------------------------------------------------------------------------
+# Prompts -- all 25 capability IDs
+# ---------------------------------------------------------------------------
+prompts:
+  agent_system_framing:        "[STUB: education agent_system_framing prompt not yet authored]"
+  brief_me:                    "[STUB: education brief_me prompt not yet authored]"
+  triage_inbox:                "[STUB: education triage_inbox prompt not yet authored]"
+  prep_next_meeting:           "[STUB: education prep_next_meeting prompt not yet authored]"
+  top_3_focus:                 "[STUB: education top_3_focus prompt not yet authored]"
+  tomorrow_preview:            "[STUB: education tomorrow_preview prompt not yet authored]"
+  pii_contract_review:         "[STUB: education pii_contract_review prompt not yet authored]"
+  pii_marketing_review:        "[STUB: education pii_marketing_review prompt not yet authored]"
+  id_analyze:                  "[STUB: education id_analyze prompt not yet authored]"
+  check_analyze:               "[STUB: education check_analyze prompt not yet authored]"
+  live_assist_analyze:         "[STUB: education live_assist_analyze prompt not yet authored]"
+  live_assist_translate:       "[STUB: education live_assist_translate prompt not yet authored]"
+  meeting_transcribe_extract:  "[STUB: education meeting_transcribe_extract prompt not yet authored]"
+  meeting_classify:            "[STUB: education meeting_classify prompt not yet authored]"
+  meeting_annotate:            "[STUB: education meeting_annotate prompt not yet authored]"
+  meeting_report:              "[STUB: education meeting_report prompt not yet authored]"
+  meeting_translate:           "[STUB: education meeting_translate prompt not yet authored]"
+  concierge_greeting_brief:    "[STUB: education concierge_greeting_brief prompt not yet authored]"
+  email_polish:                "[STUB: education email_polish prompt not yet authored]"
+  device_health_summary:       "[STUB: education device_health_summary prompt not yet authored]"
+  security_audit_summary:      "[STUB: education security_audit_summary prompt not yet authored]"
+  device_search:               "[STUB: education device_search prompt not yet authored]"
+  summarize_doc:               "[STUB: education summarize_doc prompt not yet authored]"
+  detect_pii:                  "[STUB: education detect_pii prompt not yet authored]"
+  knowledge_qa:                "[STUB: education knowledge_qa prompt not yet authored]"
+
+# ---------------------------------------------------------------------------
+# Personas
+# ---------------------------------------------------------------------------
+personas:
+  allowlist: []
+  default: null
+
+# ---------------------------------------------------------------------------
+# PII -- demo-safe person names
+# ---------------------------------------------------------------------------
+pii:
+  demo_person_names:
+    - "Demo Person"
+
+# ---------------------------------------------------------------------------
+# Catalog
+# ---------------------------------------------------------------------------
+catalog:
+  schema_version: 2
+  taxonomy: "education-courses"
+  groups:
+    - placeholder
+
+# ---------------------------------------------------------------------------
+# Demo data
+# ---------------------------------------------------------------------------
+demo_data:
+  path: "demo_data/education"
+
+# ---------------------------------------------------------------------------
+# UI
+# ---------------------------------------------------------------------------
+ui:
+  stub_banner: true
+  airplane_mode_caption: "All student data is processed on-device. No data leaves this machine."

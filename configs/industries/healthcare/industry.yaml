@@ -1,0 +1,687 @@
+# industry.yaml - Healthcare industry pack (root config)
+# Schema v1 -- loaded by the industry config loader at startup.
+# This file defines vocabulary, compliance, tabs, prompts, and catalog
+# for healthcare-provider deployments. Verticals (pharma, payer, etc.)
+# extend this file with overrides.
+
+schema_version: 1
+industry_id: healthcare
+display_name: "Healthcare"
+status: active
+
+# ----------------------------------------------------------------------
+# Vocabulary -- domain terms injected into prompts via {{variable}}
+# ----------------------------------------------------------------------
+vocabulary:
+  subject: patient
+  subject_plural: patients
+  practitioner: clinician
+  practitioner_plural: clinicians
+  engagement: visit
+  engagement_plural: visits
+  record: chart
+  records_system: EHR
+  organization: clinic
+  catalog_item: service
+
+# ----------------------------------------------------------------------
+# Compliance -- regulatory regimes and safety gates
+# ----------------------------------------------------------------------
+compliance:
+  regimes:
+    - id: HIPAA
+      pii_label: PHI
+      controls:
+        - phi_handling
+        - minimum_necessary
+        - breach_notification
+    - id: HITECH
+      controls:
+        - audit_logging
+        - encryption_at_rest
+
+  primary_safety_gate: clinical_advice_gate
+
+  required_disclosures:
+    - "Demo data only. No real PHI is used."
+    - "On-device inference. No data leaves this Surface."
+
+# ----------------------------------------------------------------------
+# Integrations -- external systems and identity providers
+# ----------------------------------------------------------------------
+integrations:
+  records_system:
+    primary: Epic
+    alternates:
+      - Cerner
+      - athenahealth
+      - Meditech
+  identity: Active Directory
+  productivity: Microsoft Graph
+
+# ----------------------------------------------------------------------
+# Concierge -- patient arrival tiers and greeting prompt
+# ----------------------------------------------------------------------
+concierge:
+  enabled: true
+  # Priority convention: 0 = highest (like P0/P1 severity)
+  tiers:
+    - id: vip
+      name: "VIP / Concierge"
+      color: "#7B2CBF"
+      priority: 0
+    - id: scheduled
+      name: "Scheduled"
+      color: "#3FA391"
+      priority: 1
+    - id: walk_in
+      name: "Walk-In"
+      color: "#F4A261"
+      priority: 2
+    - id: urgent
+      # RAI NOTE: Reframe as 'Priority Appointment' not 'Urgent/Emergency'
+      # to avoid implying clinical triage. Review in healthcare content sprint.
+      name: "Priority Appointment"
+      color: "#C81D25"
+      priority: 3
+  greeting_prompt_id: concierge_greeting_brief
+
+# ----------------------------------------------------------------------
+# Tabs -- sidebar navigation, names, sub-labels, and icons
+# All icons use healthcare teal (#2C8C7A) as the accent color.
+# ----------------------------------------------------------------------
+tabs:
+  chat:
+    name: "Clinical Assistant"
+    sub: "Reference & Documentation"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2C8C7A" stroke-width="1.8"><path d="M12 2L4 5v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V5L12 2z"/><path d="M9 12h6M12 9v6" stroke="#2C8C7A" stroke-width="2"/></svg>'
+  day:
+    name: "Shift Briefing"
+    sub: "Daily Prep"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2C8C7A" stroke-width="1.8"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="#2C8C7A" stroke="none" opacity="0.3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>'
+  auditor:
+    name: "PHI Guard"
+    sub: "Compliance Check"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2C8C7A" stroke-width="1.8"><path d="M12 2L4 5v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V5L12 2z"/><path d="M9 12l2 2 4-4" stroke="#2C8C7A" stroke-width="2" opacity="0.6"/></svg>'
+  id:
+    name: "Patient Intake & Insurance"
+    sub: "Scan & Verify"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2C8C7A" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="11" r="2.5" fill="#2C8C7A" stroke="none" opacity="0.3"/><path d="M15 9h4M15 12h3M15 15h2M5 17c0-2 1.5-3 4-3s4 1 4 3"/></svg>'
+  live:
+    name: "Visit Assist"
+    sub: "Real-Time Clinical AI"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2C8C7A" stroke-width="1.8"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>'
+  field:
+    name: "Clinical Notes"
+    sub: "Post-Visit Workflow"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2C8C7A" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/><rect x="8" y="9" width="3" height="2" rx="0.5" fill="#2C8C7A" stroke="none" opacity="0.3"/></svg>'
+
+# ----------------------------------------------------------------------
+# Prompts -- full text for all 25 capability IDs
+# Variables: {{subject}}, {{practitioner}}, {{engagement}}, {{record}},
+#            {{records_system}}, {{organization}}, {{catalog_item}}
+# ----------------------------------------------------------------------
+prompts:
+
+  # -- Chat / Agent ----------------------------------------------------
+
+  agent_system_framing: |
+    You are a clinical documentation assistant running entirely on-device
+    on a Microsoft Surface Copilot+ PC. You help {{practitioner_plural}}
+    with reference lookups, care-coordination notes, EHR documentation,
+    and administrative tasks.
+
+    CRITICAL SAFETY RULES:
+    1. You NEVER provide a diagnosis or differential diagnosis.
+    2. You NEVER recommend specific drug dosages, titration, or prescribing.
+    3. You NEVER interpret lab results with a clinical conclusion.
+    4. When a question touches clinical decision-making, frame your
+       response as: "This is something to discuss with the care team"
+       or "The {{practitioner}} would want to review this with the patient."
+    5. You may summarize published clinical guidelines (e.g., USPSTF,
+       AHA, ADA) but always note the source and that individual patient
+       factors must be considered.
+
+    You have access to the following tools:
+    - read_file: Read a file from the demo data directory
+    - write_file: Write a file to the demo data directory
+    - exec_command: Run an allowed PowerShell command
+    - d365_customer_lookup: Look up a {{subject}} in the CRM
+    - d365_check_in_queue: Check the {{subject}} queue
+    - d365_log_activity: Log a clinical activity to the CRM timeline
+    - d365_recent_activities: View recent activities for a {{subject}}
+    - my_calendar_today: Show today's clinical schedule
+    - prep_next_client: Prepare a brief for the next scheduled {{engagement}}
+
+    Respond concisely. Use clinical terminology when appropriate but
+    explain abbreviations on first use. Keep responses under 300 words
+    unless the user asks for more detail.
+
+  # -- Morning Briefing / Shift Briefing -------------------------------
+
+  brief_me: |
+    Generate a morning shift briefing for a {{practitioner}} starting
+    their day at a {{organization}}.
+
+    DATA (today's schedule, clinical inbox, pending tasks):
+    ---
+    {{payload}}
+    ---
+
+    Structure the briefing as:
+    1. **Schedule Overview** -- How many {{engagement_plural}} today,
+       any double-books or gaps, first {{engagement}} time.
+    2. **Critical Follow-Ups** -- {{subject_plural}} with pending lab
+       results, prior-auth decisions, or callback requests. Flag any
+       that are time-sensitive.
+    3. **Clinical Inbox** -- Summarize unread messages by urgency.
+       Refill requests, referral responses, portal messages.
+    4. **Heads-Up** -- Anything unusual: new {{subject}}, complex case,
+       schedule change, or compliance deadline.
+
+    Keep the briefing under 250 words. Use bullet points. Do not
+    fabricate data -- only reference what appears in the payload.
+
+  triage_inbox: |
+    Triage the following clinical inbox messages by urgency.
+
+    MESSAGES:
+    ---
+    {{payload}}
+    ---
+
+    For each message, assign one of: URGENT, TODAY, THIS WEEK, FYI.
+    - URGENT: Abnormal lab results, prior-auth denials for active treatment,
+      {{subject}} safety concerns.
+    - TODAY: Refill requests, same-day appointment requests, referral
+      responses needing action.
+    - THIS WEEK: Portal messages, routine follow-up scheduling, non-urgent
+      clinical questions.
+    - FYI: Newsletters, policy updates, informational notices.
+
+    Output a sorted list (URGENT first). For each item show:
+    [PRIORITY] Subject -- one-line summary and recommended action.
+
+  prep_next_meeting: |
+    Prepare a brief for the next {{engagement}} with a {{subject}}.
+
+    {{SUBJECT}} CONTEXT:
+    ---
+    {{payload}}
+    ---
+
+    Include:
+    1. **{{subject}} Summary** -- Name, age, primary concerns, relevant
+       history from the {{record}}.
+    2. **Last {{engagement}}** -- Date, key findings, any open orders or
+       referrals.
+    3. **Today's Agenda** -- Likely topics based on the reason for visit,
+       pending results, and care-plan milestones.
+    4. **Preparation Checklist** -- Any forms, consents, or materials to
+       have ready.
+
+    Keep it under 200 words. Focus on what the {{practitioner}} needs
+    to walk in prepared.
+
+  top_3_focus: |
+    Based on today's schedule and clinical inbox, identify the 3
+    highest-priority items for this {{practitioner}}.
+
+    DATA:
+    ---
+    {{payload}}
+    ---
+
+    For each item, state:
+    - **What:** One sentence describing the item.
+    - **Why now:** Why it is time-sensitive or high-impact.
+    - **Action:** The single next step.
+
+    Rank by clinical urgency first, then operational impact.
+
+  tomorrow_preview: |
+    Preview tomorrow's schedule for this {{practitioner}}.
+
+    DATA:
+    ---
+    {{payload}}
+    ---
+
+    Summarize:
+    - Number of {{engagement_plural}} and time range.
+    - Any complex cases or new {{subject_plural}}.
+    - Prep tasks that can be done today to make tomorrow smoother.
+    Keep it under 150 words.
+
+  # -- PHI Guard / Auditor ---------------------------------------------
+
+  pii_contract_review: |
+    Review the following vendor agreement for PHI handling compliance.
+
+    DOCUMENT TEXT:
+    ---
+    {{payload}}
+    ---
+
+    Analyze for:
+    1. **Business Associate Agreement (BAA):** Is a BAA present or
+       referenced? Are the required HIPAA BAA provisions included
+       (permitted uses, safeguards, breach notification, termination)?
+    2. **PHI Scope:** What categories of PHI will the vendor access?
+       Is the minimum-necessary principle addressed?
+    3. **Security Controls:** Encryption at rest and in transit,
+       access controls, audit logging, incident response.
+    4. **Data Retention & Destruction:** Clear terms for how long PHI
+       is retained and how it is destroyed after contract end.
+    5. **Risk Rating:** LOW / MEDIUM / HIGH with rationale.
+
+    If any required HIPAA BAA element is missing, flag it as a gap.
+    Output a structured compliance summary.
+
+  pii_marketing_review: |
+    Review the following patient-facing material for regulatory
+    compliance.
+
+    DOCUMENT TEXT:
+    ---
+    {{payload}}
+    ---
+
+    Check for:
+    1. **PHI Exposure:** Does the material contain or reference any
+       real patient information (names, MRNs, dates of service)?
+    2. **Consent Language:** Are appropriate consent and opt-out
+       disclosures present where required?
+    3. **Claims & Disclaimers:** Are health claims supported? Are
+       required disclaimers (e.g., "results may vary") present?
+    4. **Accessibility:** Is the language at an appropriate reading
+       level (target: 6th-8th grade for patient materials)?
+    5. **Recommendation:** APPROVE / REVISE with specific changes.
+
+  # -- ID & Check Verify / Patient Intake ------------------------------
+
+  id_analyze: |
+    Extract fields from this {{subject}}'s insurance card.
+
+    OCR TEXT:
+    ---
+    {{payload}}
+    ---
+
+    Extract the following fields. If a field is not found, write "NOT FOUND":
+    - **Member Name**
+    - **Member ID**
+    - **Group Number**
+    - **Plan Name / Type** (e.g., PPO, HMO, EPO)
+    - **Payer / Insurance Company**
+    - **Copay -- Primary Care**
+    - **Copay -- Specialist**
+    - **Copay -- Emergency**
+    - **Deductible**
+    - **Effective Date**
+    - **RxBIN / RxPCN / RxGroup** (pharmacy benefits, if present)
+
+    Output as a clean key-value list. Do not guess or fabricate values
+    that are not in the OCR text.
+
+  check_analyze: |
+    Verify the following insurance Explanation of Benefits (EOB) document.
+
+    OCR TEXT:
+    ---
+    {{payload}}
+    ---
+
+    Extract and verify:
+    - **{{subject}} Name**
+    - **Date of Service**
+    - **Provider Name**
+    - **Procedure Codes (CPT)** and descriptions
+    - **Billed Amount**
+    - **Allowed Amount**
+    - **Insurance Paid**
+    - **{{subject}} Responsibility** (copay, coinsurance, deductible)
+    - **Claim Status** (paid, denied, pending)
+
+    Flag any discrepancies between billed and allowed amounts.
+    If the claim is denied, note the denial reason code if present.
+
+  # -- Live Assist / Visit Assist --------------------------------------
+
+  live_assist_analyze: |
+    You are a real-time clinical conversation assistant. You are listening
+    to a {{engagement}} between a {{practitioner}} and a {{subject}}.
+
+    CONVERSATION SO FAR:
+    ---
+    {{payload}}
+    ---
+
+    Generate 1-3 insight bullets. Each bullet MUST be 12 words or fewer.
+    Focus on:
+    - Relevant clinical guidelines or screening reminders based on what
+      the {{subject}} mentions (age, symptoms, history).
+    - Documentation prompts ("Note: {{subject}} reports...").
+    - Cross-reference opportunities ("Check if due for...").
+    - Care-coordination flags ("Referral to X may be indicated").
+
+    NEVER suggest a diagnosis or drug. Frame as reminders, not decisions.
+
+    End with a SENTIMENT line:
+    SENTIMENT: <POSITIVE|NEUTRAL|CONCERNED|ANXIOUS>
+
+    If the {{subject}} expresses pain, fear, or frustration, set
+    CONCERNED or ANXIOUS. Otherwise NEUTRAL or POSITIVE.
+
+  live_assist_translate: |
+    Translate the following clinical conversation excerpt to {{target_language}}.
+
+    TEXT:
+    ---
+    {{payload}}
+    ---
+
+    Preserve medical terminology where the target language has standard
+    equivalents. Keep formatting intact. Do not add commentary.
+
+  # -- Meeting Notes / Clinical Notes ----------------------------------
+
+  meeting_transcribe_extract: |
+    Extract structured fields from the following clinical note transcription.
+
+    TEXT:
+    ---
+    {{payload}}
+    ---
+
+    Extract:
+    - **{{subject}}:** Full name
+    - **Location:** {{organization}} or facility name
+    - **Date/Time:** When the {{engagement}} occurred
+    - **Chief Complaint / Concerns:** Primary reason for {{engagement}}
+    - **Referral Source:** How the {{subject}} was referred (if mentioned)
+    - **Key Discussion Points:** Bullet list of topics covered
+
+    If a field is not mentioned, write "Not mentioned."
+
+  meeting_classify: |
+    Classify the following clinical document into one of these categories:
+    - Consent Form
+    - Lab Report
+    - Imaging Report
+    - Referral Letter
+    - Insurance Card
+    - Prescription
+    - Discharge Summary
+    - Progress Note
+    - Operative Report
+    - Patient Questionnaire
+    - Other
+
+    DOCUMENT TEXT OR DESCRIPTION:
+    ---
+    {{payload}}
+    ---
+
+    Output:
+    CLASSIFICATION: <category>
+    CONFIDENCE: <HIGH|MEDIUM|LOW>
+    REASONING: <one sentence>
+
+  meeting_annotate: |
+    Extract all visible text and annotations from this clinical image.
+
+    IMAGE DESCRIPTION / OCR TEXT:
+    ---
+    {{payload}}
+    ---
+
+    Return the extracted text organized by region (top, middle, bottom)
+    or by logical section. Note any handwritten annotations, stamps,
+    or signatures detected. Flag any PHI that should be redacted before
+    sharing.
+
+  meeting_report: |
+    Generate a Clinical Visit Summary from the following data.
+
+    {{ENGAGEMENT}} DATA:
+    ---
+    {{payload}}
+    ---
+
+    Structure the summary as:
+    ## Clinical Visit Summary
+    **{{subject}}:** [name]
+    **Date:** [date]
+    **{{practitioner}}:** [name]
+    **{{organization}}:** [location]
+
+    ### Chief Complaint
+    [Reason for visit]
+
+    ### Discussion & Findings
+    [Key points from the visit, organized by topic]
+
+    ### Assessment
+    [Clinical impressions -- keep factual, no diagnoses beyond what was
+    explicitly stated during the visit]
+
+    ### Plan
+    - [Action items, referrals, follow-ups]
+    - [Prescriptions discussed (names only, no dosages)]
+    - [Patient education provided]
+
+    ### Next Steps
+    - [Follow-up appointment]
+    - [Pending labs or imaging]
+    - [Patient instructions]
+
+    Keep the summary professional and suitable for inclusion in an EHR.
+    Do not fabricate findings not present in the data.
+
+  meeting_translate: |
+    Translate the following clinical notes to {{target_language}}.
+
+    TEXT:
+    ---
+    {{payload}}
+    ---
+
+    Preserve medical terminology with standard equivalents in the target
+    language. Maintain section headers and formatting. Do not add
+    clinical interpretation.
+
+  # -- Concierge -------------------------------------------------------
+
+  concierge_greeting_brief: |
+    A {{subject}} is arriving at the {{organization}} for a scheduled
+    {{engagement}}.
+
+    {{SUBJECT}} CONTEXT:
+    ---
+    {{payload}}
+    ---
+
+    Generate a brief greeting prep for the front desk:
+    1. **Name & Preferred Name:** How to address the {{subject}}.
+    2. **Visit Type:** What they are here for.
+    3. **Special Needs:** Accessibility, interpreter, pediatric, etc.
+    4. **Last Visit:** When they were last seen and with whom.
+    5. **Greeting Note:** A warm, one-sentence personalized greeting
+       the receptionist can use.
+
+    Keep under 100 words. Tone: friendly and professional.
+
+  # -- Email / Referral Letter -----------------------------------------
+
+  email_polish: |
+    Rewrite the following draft referral or follow-up letter to be
+    professional, clear, and appropriate for clinical correspondence.
+
+    DRAFT:
+    ---
+    {{payload}}
+    ---
+
+    Guidelines:
+    - Use professional clinical tone.
+    - Ensure the letter includes: reason for referral, relevant history,
+      current medications (if mentioned), and specific ask.
+    - Remove any PHI that is not necessary for the referral.
+    - Keep under 200 words.
+    - Do not add information not present in the draft.
+
+  # -- Device-Level Prompts (industry-neutral) -------------------------
+
+  device_health_summary: |
+    Summarize the health of this device based on the following telemetry.
+
+    DATA:
+    ---
+    {{payload}}
+    ---
+
+    Report: CPU, memory, disk, NPU utilization, battery, thermal state.
+    Flag anything outside normal ranges. Keep under 100 words.
+
+  security_audit_summary: |
+    Review the following device security posture data.
+
+    DATA:
+    ---
+    {{payload}}
+    ---
+
+    Check: OS patch level, BitLocker status, antivirus, firewall,
+    network isolation. Flag any issues. Keep under 100 words.
+
+  device_search: |
+    Search the local file system for files matching the user's query.
+
+    QUERY: {{payload}}
+
+    Use the available tools to search. Report file names, paths, and
+    sizes. Do not read file contents unless asked.
+
+  # -- Document & Knowledge Prompts (PHI-aware) ------------------------
+
+  summarize_doc: |
+    Summarize the following clinical or administrative document.
+
+    DOCUMENT TEXT:
+    ---
+    {{payload}}
+    ---
+
+    Provide a concise summary (under 150 words). If the document contains
+    PHI, note that PHI is present but do not reproduce it unnecessarily.
+    Focus on the key facts, decisions, and action items.
+
+  detect_pii: |
+    Scan the following text for Protected Health Information (PHI) and
+    Personally Identifiable Information (PII).
+
+    TEXT:
+    ---
+    {{payload}}
+    ---
+
+    Identify all instances of:
+    - Patient names, dates of birth, ages
+    - Medical record numbers (MRNs), account numbers
+    - Social Security Numbers
+    - Addresses, phone numbers, email addresses
+    - Dates of service, admission/discharge dates
+    - Provider names and NPI numbers
+    - Health plan beneficiary numbers
+    - Any other HIPAA-defined PHI identifiers
+
+    For each finding, report:
+    - **Type:** (e.g., Patient Name, MRN, SSN)
+    - **Value:** The text found
+    - **Location:** Approximate position in the text
+
+    End with a count: "Total PHI/PII findings: N"
+
+  knowledge_qa: |
+    Answer the following question using only the provided knowledge base
+    context. This is a healthcare environment -- if the question involves
+    clinical decision-making, respond with: "This is a clinical question
+    that should be discussed with the care team."
+
+    CONTEXT:
+    ---
+    {{context}}
+    ---
+
+    QUESTION: {{question}}
+
+    If the answer is not in the context, say "I don't have that
+    information in the current knowledge base." Do not guess. If PHI
+    appears in the context, do not reproduce it in the answer unless
+    directly relevant to the question.
+
+# ----------------------------------------------------------------------
+# Personas -- allowed persona configs and default
+# ----------------------------------------------------------------------
+personas:
+  allowlist:
+    - dr_maya_patel
+    - np_sam_torres
+  default: dr_maya_patel
+
+# ----------------------------------------------------------------------
+# PII -- demo person names used in synthetic data
+# ----------------------------------------------------------------------
+pii:
+  demo_person_names:
+    - Jordan Lee
+    - Maya Patel
+    - Sam Torres
+    - Priya Sharma
+    - David Okafor
+
+# ----------------------------------------------------------------------
+# Catalog -- clinical services taxonomy and cross-sell signals
+# ----------------------------------------------------------------------
+catalog:
+  schema_version: 2
+  taxonomy: clinical_pathways
+
+  groups:
+    - primary_care
+    - preventive
+    - chronic_care
+    - behavioral_health
+
+  signals:
+    - id: no_annual_wellness
+      description: "Patient has no annual wellness visit on record in the past 12 months"
+      suggest:
+        - annual_wellness_visit
+      priority: high
+
+    - id: overdue_screenings
+      description: "Patient is overdue for age-appropriate preventive screenings"
+      suggest:
+        - preventive_screening_package
+      priority: high
+
+    - id: unmanaged_chronic
+      description: "Patient has chronic condition(s) without an active care management plan"
+      suggest:
+        - chronic_care_management
+      priority: medium
+
+# ----------------------------------------------------------------------
+# Demo Data -- path to healthcare demo data directory
+# ----------------------------------------------------------------------
+demo_data:
+  path: "demo_data/healthcare-provider"
+
+# ----------------------------------------------------------------------
+# UI -- runtime flags
+# ----------------------------------------------------------------------
+ui:
+  stub_banner: false
+  airplane_mode_caption: "All clinical reasoning runs on this Surface. Zero PHI leaves the device."

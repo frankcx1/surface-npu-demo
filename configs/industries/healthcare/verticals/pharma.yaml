@@ -1,0 +1,120 @@
+# pharma.yaml - Pharmaceutical vertical (stub)
+# Extends the root healthcare industry config with pharma-specific
+# vocabulary, compliance regimes, and tab names.
+# STATUS: STUB -- prompts are placeholders, not production-ready.
+
+extends: industries/healthcare/industry.yaml
+
+vertical_id: pharma
+display_name: "Pharmaceutical"
+status: stub
+
+# ----------------------------------------------------------------------
+# Vocabulary overrides -- pharma field terminology
+# ----------------------------------------------------------------------
+vocabulary:
+  practitioner: MSL
+  practitioner_plural: MSLs
+  engagement: call
+  engagement_plural: calls
+  records_system: Veeva CRM
+  organization: field office
+  catalog_item: therapy
+
+# ----------------------------------------------------------------------
+# Compliance overrides -- pharma-specific regulatory regimes
+# ----------------------------------------------------------------------
+compliance:
+  regimes:
+    - id: HIPAA
+      pii_label: PHI
+      controls:
+        - phi_handling
+        - minimum_necessary
+        - breach_notification
+    - id: GxP
+      controls:
+        - data_integrity
+        - audit_trail
+        - electronic_signatures
+    - id: 21_CFR_Part_11
+      controls:
+        - electronic_records
+        - electronic_signatures
+        - audit_trail
+    - id: Sunshine_Act
+      controls:
+        - hcp_transfer_of_value
+        - meal_tracking
+        - sample_accountability
+
+  primary_safety_gate: pharma_promotional_gate
+
+# ----------------------------------------------------------------------
+# Integrations overrides
+# ----------------------------------------------------------------------
+integrations:
+  records_system:
+    primary: Veeva CRM
+    alternates:
+      - IQVIA OCE
+
+# ----------------------------------------------------------------------
+# Tabs -- pharma-specific names
+# ----------------------------------------------------------------------
+tabs:
+  chat:
+    name: "MSL Assistant"
+    sub: "Medical & Scientific Reference"
+  day:
+    name: "Field Day Briefing"
+    sub: "Daily Call Plan"
+  auditor:
+    name: "GxP / Promo Review"
+    sub: "Compliance Check"
+  id:
+    name: "HCP Sample Sign-Off"
+    sub: "Scan & Verify"
+  live:
+    name: "HCP Detailing Assist"
+    sub: "Real-Time Clinical AI"
+  field:
+    name: "Call Notes / Sunshine Log"
+    sub: "Post-Call Workflow"
+
+# ----------------------------------------------------------------------
+# Prompts -- stub placeholders for all 25 capability IDs
+# These must be authored in a pharma content sprint before activation.
+# ----------------------------------------------------------------------
+prompts:
+  agent_system_framing: "[STUB: pharma agent_system_framing prompt not yet authored]"
+  brief_me: "[STUB: pharma brief_me prompt not yet authored]"
+  triage_inbox: "[STUB: pharma triage_inbox prompt not yet authored]"
+  prep_next_meeting: "[STUB: pharma prep_next_meeting prompt not yet authored]"
+  top_3_focus: "[STUB: pharma top_3_focus prompt not yet authored]"
+  tomorrow_preview: "[STUB: pharma tomorrow_preview prompt not yet authored]"
+  pii_contract_review: "[STUB: pharma pii_contract_review prompt not yet authored]"
+  pii_marketing_review: "[STUB: pharma pii_marketing_review prompt not yet authored]"
+  id_analyze: "[STUB: pharma id_analyze prompt not yet authored]"
+  check_analyze: "[STUB: pharma check_analyze prompt not yet authored]"
+  live_assist_analyze: "[STUB: pharma live_assist_analyze prompt not yet authored]"
+  live_assist_translate: "[STUB: pharma live_assist_translate prompt not yet authored]"
+  meeting_transcribe_extract: "[STUB: pharma meeting_transcribe_extract prompt not yet authored]"
+  meeting_classify: "[STUB: pharma meeting_classify prompt not yet authored]"
+  meeting_annotate: "[STUB: pharma meeting_annotate prompt not yet authored]"
+  meeting_report: "[STUB: pharma meeting_report prompt not yet authored]"
+  meeting_translate: "[STUB: pharma meeting_translate prompt not yet authored]"
+  concierge_greeting_brief: "[STUB: pharma concierge_greeting_brief prompt not yet authored]"
+  email_polish: "[STUB: pharma email_polish prompt not yet authored]"
+  device_health_summary: "[STUB: pharma device_health_summary prompt not yet authored]"
+  security_audit_summary: "[STUB: pharma security_audit_summary prompt not yet authored]"
+  device_search: "[STUB: pharma device_search prompt not yet authored]"
+  summarize_doc: "[STUB: pharma summarize_doc prompt not yet authored]"
+  detect_pii: "[STUB: pharma detect_pii prompt not yet authored]"
+  knowledge_qa: "[STUB: pharma knowledge_qa prompt not yet authored]"
+
+# ----------------------------------------------------------------------
+# UI -- show stub banner since prompts are not authored
+# ----------------------------------------------------------------------
+ui:
+  stub_banner: true

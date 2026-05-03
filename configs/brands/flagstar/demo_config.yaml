@@ -1,0 +1,43 @@
+schema_version: 1
+extends: brands/zava-financial/demo_config.yaml
+brand_id: flagstar
+display_name: "Flagstar Bank"
+brand_status: active
+
+brand:
+  primary: "#0a2540"
+  primary_end: "#0d1f33"
+  accent: "#f18f12"
+  accent_rgb: "241,143,18"
+  hover: "#f6d107"
+  theme: "light"
+  logo: "flagstar-logo-official.png"
+  company_name: "Flagstar Bank"
+
+advisor:
+  name: "Alan Thornbury"
+  title: "Vice President & Senior Relationship Manager"
+  company: "Flagstar Bank"
+  phone: "(248) 312-5500"
+  email: "alan.thornbury@flagstar.com"
+  organization_unit: "Bloomfield Hills Branch"
+
+customer:
+  name: "Jackie Rodriguez"
+  full_name: "Jackie Marie Rodriguez"
+  d365_contact_id: "5cdc2c3f-ad29-f111-8342-002248357e0e"
+
+personas:
+  - name: "Frank"
+    role: "Branch Manager"
+    tabs: ["auditor", "id"]
+  - name: "Alan"
+    role: "Relationship Manager"
+    tabs: ["day", "chat", "live", "field"]
+
+branches:
+  - name: "Troy Main Branch"
+    city: "Troy"
+    state: "MI"
+
+# Everything else inherited from zava-financial -> financial-services/banking -> financial-services

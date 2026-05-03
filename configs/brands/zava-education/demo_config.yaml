@@ -1,0 +1,28 @@
+schema_version: 1
+extends: industries/education/verticals/higher-ed.yaml
+brand_id: zava-education
+display_name: "Zava University"
+brand_status: stub
+
+brand:
+  primary: "#f7f9fb"
+  primary_end: "#ebeff3"
+  accent: "#4A2C6E"
+  accent_rgb: "74,44,110"
+  hover: "#7B52AB"
+  theme: "light"
+  logo: "zava-logo.png"
+  company_name: "Zava University"
+
+advisor:
+  name: "Placeholder Faculty"
+  title: "Academic Advisor"
+  company: "Zava University"
+  phone: "(555) 000-0000"
+  email: "advisor@zavauniv.example"
+  organization_unit: "Student Services"
+
+customer:
+  name: "Demo Student"
+  full_name: "Demo J. Student"
+  identifier: ""

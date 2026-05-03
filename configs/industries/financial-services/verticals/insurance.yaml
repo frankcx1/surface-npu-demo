@@ -1,0 +1,92 @@
+# insurance.yaml - Insurance vertical for Financial Services (STUB)
+# This vertical is a placeholder. All prompts require authoring before use.
+# Status "stub" signals to the loader that this vertical is not demo-ready.
+
+extends: industries/financial-services/industry.yaml
+
+schema_version: 1
+vertical_id: insurance
+display_name: "Insurance"
+status: stub
+
+# ---------------------------------------------------------------------------
+# Vocabulary overrides
+# ---------------------------------------------------------------------------
+vocabulary:
+  subject: policyholder
+  practitioner: adjuster
+  engagement: claim
+  record: policy
+  records_system: CRM
+  organization: agency
+  catalog_item: coverage
+
+# ---------------------------------------------------------------------------
+# Compliance -- add insurance-specific regime
+# ---------------------------------------------------------------------------
+compliance:
+  regimes_append:
+    - id: NAIC
+      name: "NAIC Model Laws"
+      description: "National Association of Insurance Commissioners model regulations covering solvency, market conduct, and consumer protection."
+  primary_safety_gate: financial_advice_gate
+
+# ---------------------------------------------------------------------------
+# Tabs -- insurance-specific names
+# ---------------------------------------------------------------------------
+tabs:
+  chat:
+    name: "Adjuster Assistant"
+    sub: "Knowledge & Tools"
+  day:
+    name: "Claims Briefing"
+    sub: "Daily Prep"
+  auditor:
+    name: "Claims Doc Review"
+    sub: "Compliance Check"
+  id:
+    name: "FNOL Intake & Doc Capture"
+    sub: "First Notice of Loss"
+  live:
+    name: "Adjuster Field Interview"
+    sub: "Live Claim Interview"
+  field:
+    name: "Claim Notes"
+    sub: "Post-Claim Workflow"
+
+# ---------------------------------------------------------------------------
+# Prompts -- stubs for all 25 capability IDs
+# All prompts must be authored before this vertical can move to status: active.
+# ---------------------------------------------------------------------------
+prompts:
+  agent_system_framing: "[STUB: insurance agent_system_framing prompt not yet authored]"
+  brief_me: "[STUB: insurance brief_me prompt not yet authored]"
+  triage_inbox: "[STUB: insurance triage_inbox prompt not yet authored]"
+  prep_next_meeting: "[STUB: insurance prep_next_meeting prompt not yet authored]"
+  top_3_focus: "[STUB: insurance top_3_focus prompt not yet authored]"
+  tomorrow_preview: "[STUB: insurance tomorrow_preview prompt not yet authored]"
+  pii_contract_review: "[STUB: insurance pii_contract_review prompt not yet authored]"
+  pii_marketing_review: "[STUB: insurance pii_marketing_review prompt not yet authored]"
+  id_analyze: "[STUB: insurance id_analyze prompt not yet authored]"
+  check_analyze: "[STUB: insurance check_analyze prompt not yet authored]"
+  live_assist_analyze: "[STUB: insurance live_assist_analyze prompt not yet authored]"
+  live_assist_translate: "[STUB: insurance live_assist_translate prompt not yet authored]"
+  meeting_transcribe_extract: "[STUB: insurance meeting_transcribe_extract prompt not yet authored]"
+  meeting_classify: "[STUB: insurance meeting_classify prompt not yet authored]"
+  meeting_annotate: "[STUB: insurance meeting_annotate prompt not yet authored]"
+  meeting_report: "[STUB: insurance meeting_report prompt not yet authored]"
+  meeting_translate: "[STUB: insurance meeting_translate prompt not yet authored]"
+  concierge_greeting_brief: "[STUB: insurance concierge_greeting_brief prompt not yet authored]"
+  email_polish: "[STUB: insurance email_polish prompt not yet authored]"
+  device_health_summary: "[STUB: insurance device_health_summary prompt not yet authored]"
+  security_audit_summary: "[STUB: insurance security_audit_summary prompt not yet authored]"
+  device_search: "[STUB: insurance device_search prompt not yet authored]"
+  summarize_doc: "[STUB: insurance summarize_doc prompt not yet authored]"
+  detect_pii: "[STUB: insurance detect_pii prompt not yet authored]"
+  knowledge_qa: "[STUB: insurance knowledge_qa prompt not yet authored]"
+
+# ---------------------------------------------------------------------------
+# UI
+# ---------------------------------------------------------------------------
+ui:
+  stub_banner: true
