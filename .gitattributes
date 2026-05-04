@@ -1,0 +1,25 @@
+# Windows scripts must have CRLF line endings
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Python source stays as-is (Git default: normalize to LF in repo, checkout native)
+*.py text
+
+# YAML configs
+*.yaml text
+*.yml text
+
+# Binary files
+*.pptx binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.avif binary
+*.webp binary
+*.msix binary
+*.cer binary
+*.wasm binary
+*.gz binary
+*.traineddata binary

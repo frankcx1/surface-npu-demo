@@ -35,6 +35,9 @@ echo Starting NPU Demo on http://localhost:5000
 echo Press Ctrl+C to stop.
 echo.
 
+:: Keep __pycache__ out of OneDrive-synced folder
+SET PYTHONPYCACHEPREFIX=%LOCALAPPDATA%\NPUDemo\__pycache__
+
 :: Launch the app
 cd /d "%~dp0"
 python npu_demo_flask.py

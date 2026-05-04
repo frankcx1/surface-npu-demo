@@ -49,8 +49,9 @@ logger = logging.getLogger("mcp-d365")
 _token_cache = None
 _token_expiry = 0
 _TOKEN_CACHE_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    ".d365_token_cache.json"
+    os.environ.get('LOCALAPPDATA', os.path.expanduser('~')),
+    'NPUDemo',
+    'd365_token_cache.json'
 )
 
 

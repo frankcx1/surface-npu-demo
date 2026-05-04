@@ -22,6 +22,36 @@ except ImportError:
 
 _APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 
+# --- Demo mode (parsed early so it's available at module load) ---
+import sys as _sys
+DEMO_MODE = '--demo-mode' in _sys.argv
+
+# --- Per-device state directory (NEVER in OneDrive-synced project folder) ---
+# Token caches, __pycache__, and other device-specific files go here.
+LOCAL_STATE_DIR = os.path.join(
+    os.environ.get('LOCALAPPDATA', os.path.expanduser('~')),
+    'NPUDemo'
+)
+os.makedirs(LOCAL_STATE_DIR, exist_ok=True)
+
+
+def _migrate_token_cache(filename):
+    """One-time migration: copy token cache from old project-root path to LOCALAPPDATA.
+    Returns the new path (always in LOCAL_STATE_DIR)."""
+    import shutil as _shutil
+    # New path drops the leading dot (e.g. .d365_token_cache.json -> d365_token_cache.json)
+    new_name = filename.lstrip('.')
+    old_path = os.path.join(_APP_ROOT, filename)
+    new_path = os.path.join(LOCAL_STATE_DIR, new_name)
+    if os.path.exists(old_path) and not os.path.exists(new_path):
+        _shutil.copy2(old_path, new_path)
+        print(f"  [MIGRATE] Token cache: {old_path} -> {new_path}")
+        try:
+            os.remove(old_path)
+        except OSError:
+            pass  # OneDrive may hold a lock; old file will be ignored next time
+    return new_path
+
 
 def _load_yaml_config():
     """Load demo config from YAML file, returning None if unavailable."""
@@ -492,6 +522,43 @@ def _get_concierge_customer(name_or_id):
     return None
 
 
+# --- Demo-mode: auto-seed Branch Concierge arrivals ---
+def _seed_demo_arrivals():
+    """Pre-populate Branch Concierge with demo arrivals when in demo-mode.
+    Makes the arrivals panel and greeting briefs work out of the box
+    without D365 or manual simulation button clicks."""
+    if not DEMO_MODE:
+        return
+    if _ARRIVALS:
+        return  # already seeded (e.g. from a previous call)
+    _demo_seeds = [
+        ("jackie_rodriguez", "app_checkin", 0),
+        ("marcus_chen", "teller_identified", 120),
+        ("sarah_henderson", "appointment", 300),
+    ]
+    for key, source, age_offset in _demo_seeds:
+        cust = _CONCIERGE_DEMO_CUSTOMERS.get(key)
+        if not cust:
+            continue
+        aid = str(_uuid.uuid4())[:8]
+        _ARRIVALS[aid] = {
+            "name": cust["name"],
+            "title": cust.get("title", ""),
+            "tier": cust["vip_tier"],
+            "source": source,
+            "source_token": f"demo-seed-{aid}",
+            "rm": cust.get("rm", ""),
+            "client_id": cust["client_id"],
+            "arrived_at": _time.time() - age_offset,
+            "status": "waiting",
+        }
+    if _ARRIVALS:
+        print(f"  [DEMO-MODE] Seeded {len(_ARRIVALS)} arrivals for Branch Concierge")
+
+
+_seed_demo_arrivals()
+
+
 # --- Dynamics 365 / MSAL Integration ---
 _D365_ORG_URL = "https://orgdf28000a.crm.dynamics.com"
 _D365_API_URL = _D365_ORG_URL + "/api/data/v9.2"
@@ -515,7 +582,7 @@ def _d365_get_token():
 
         # Try to load cached token from file
         cache = msal.SerializableTokenCache()
-        cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.d365_token_cache.json')
+        cache_file = _migrate_token_cache('.d365_token_cache.json')
         if os.path.exists(cache_file):
             with open(cache_file, 'r') as f:
                 cache.deserialize(f.read())
@@ -625,7 +692,7 @@ _D365_TENANT = "D365DemoTSCE32685848.onmicrosoft.com"
 _GRAPH_APP_ID = "a8d3dbf0-5fdd-4283-9d78-8d3235d6ca99"
 _GRAPH_TOKEN_CACHE = None
 _GRAPH_TOKEN_EXPIRY = 0
-_GRAPH_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.graph_token_cache.json')
+_GRAPH_CACHE_FILE = _migrate_token_cache('.graph_token_cache.json')
 print(f"[GRAPH] Cache file: {_GRAPH_CACHE_FILE}, exists: {os.path.exists(_GRAPH_CACHE_FILE)}")
 
 def _graph_get_token():
@@ -1762,7 +1829,7 @@ def execute_tool(name, arguments):
     elif name == "__text_response":
         return {"success": True, "output": arguments.get("text", ""), "is_text": True}
 
-    # D365 MCP tools -- route to MCP server functions
+    # D365 MCP tools -- route to MCP server functions (with demo-mode fallbacks)
     elif name == "d365_customer_lookup":
         try:
             sys.path.insert(0, os.path.join(_APP_DIR, 'mcp-d365'))
@@ -1770,6 +1837,12 @@ def execute_tool(name, arguments):
             result = _mcp_lookup(arguments.get("name", ""))
             return {"success": True, "output": result}
         except Exception as e:
+            if DEMO_MODE:
+                _qname = (arguments.get("name") or "").lower()
+                _demo_cust = _get_concierge_customer(_qname)
+                if _demo_cust:
+                    return {"success": True, "output": json.dumps({"source": "demo", "customer": {"name": _demo_cust["name"], "email": _demo_cust.get("email", ""), "phone": _demo_cust.get("phone", ""), "notes": _demo_cust.get("context", "")}})}
+                return {"success": True, "output": json.dumps({"source": "demo", "customer": {"name": arguments.get("name", "Unknown"), "email": "demo@example.com"}})}
             return {"success": False, "error": f"D365 MCP error: {e}"}
 
     elif name == "d365_check_in_queue":
@@ -1779,6 +1852,9 @@ def execute_tool(name, arguments):
             result = _mcp_queue()
             return {"success": True, "output": result}
         except Exception as e:
+            if DEMO_MODE:
+                _queue = [{"name": c["name"], "reason": "Scheduled appointment", "status": "waiting"} for c in _CONCIERGE_DEMO_CUSTOMERS.values()]
+                return {"success": True, "output": json.dumps({"source": "demo", "queue": _queue})}
             return {"success": False, "error": f"D365 MCP error: {e}"}
 
     elif name == "d365_log_activity":
@@ -1792,6 +1868,8 @@ def execute_tool(name, arguments):
             )
             return {"success": True, "output": result}
         except Exception as e:
+            if DEMO_MODE:
+                return {"success": True, "output": json.dumps({"source": "demo", "status": "logged", "message": f"Activity logged locally (demo mode): {arguments.get('note', '')}"})}
             return {"success": False, "error": f"D365 MCP error: {e}"}
 
     elif name == "d365_recent_activities":
@@ -1801,6 +1879,8 @@ def execute_tool(name, arguments):
             result = _mcp_activities(arguments.get("customer_name", ""))
             return {"success": True, "output": result}
         except Exception as e:
+            if DEMO_MODE:
+                return {"success": True, "output": json.dumps({"source": "demo", "activities": [{"date": "2026-04-28", "type": "task", "subject": "529 plan consultation", "status": "completed"}, {"date": "2026-04-21", "type": "note", "subject": "Account review completed", "status": "completed"}]})}
             return {"success": False, "error": f"D365 MCP error: {e}"}
 
     elif name == "my_calendar_today":
@@ -13893,6 +13973,8 @@ def d365_auth_status():
     """Check if D365 authentication is active."""
     if _D365_TOKEN_CACHE and _time.time() < (_D365_TOKEN_EXPIRY - 300):
         return jsonify({"authenticated": True, "source": "cached", "expires_in": int(_D365_TOKEN_EXPIRY - _time.time())})
+    if DEMO_MODE:
+        return jsonify({"authenticated": True, "source": "demo", "demo_mode": True})
     return jsonify({"authenticated": False, "message": "Run /d365/authenticate to connect"})
 
 
@@ -13906,7 +13988,7 @@ def d365_authenticate():
         scope = [_D365_ORG_URL + "/.default"]
 
         cache = msal.SerializableTokenCache()
-        cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.d365_token_cache.json')
+        cache_file = _migrate_token_cache('.d365_token_cache.json')
         if os.path.exists(cache_file):
             with open(cache_file, 'r') as f:
                 cache.deserialize(f.read())
@@ -15483,7 +15565,7 @@ def tomorrow_preview():
     return Response(generate(), mimetype='text/plain')
 
 
-DEMO_MODE = False  # Set via --demo-mode flag to bypass offline check for testing
+# DEMO_MODE is declared near the top of the file (line 27) and parsed from sys.argv.
 
 
 # ── Field Inspection endpoints ──
@@ -16544,6 +16626,16 @@ def send_followup_email():
     # Send via Microsoft Graph
     token = _graph_get_token()
     if not token:
+        if DEMO_MODE:
+            return jsonify({
+                "sent": True,
+                "demo_mode": True,
+                "to": customer_email or "customer@example.com",
+                "to_name": customer_name,
+                "subject": subject,
+                "message": "Email saved to local drafts (demo mode — Graph not connected)",
+                "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+            })
         return jsonify({"error": "Graph not authenticated. Run /graph/authenticate first.", "sent": False}), 401
 
     try:
@@ -16842,10 +16934,9 @@ def demo_mode_status():
 if __name__ == '__main__':
     import sys
 
-    # Check for --demo-mode flag
-    if '--demo-mode' in sys.argv:
-        DEMO_MODE = True
-        print("\n** DEMO MODE ENABLED - Offline check bypassed for Clean Room Auditor **\n")
+    # DEMO_MODE is already parsed at module level (line 27)
+    if DEMO_MODE:
+        print("\n** DEMO MODE ENABLED — full demo without D365/Graph tenants **\n")
 
     print("\n" + "="*50)
     print(f"{DEMO_CONFIG['app_title']} ({EDITION_TAG})")

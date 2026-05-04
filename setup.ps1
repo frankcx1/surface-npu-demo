@@ -1,471 +1,398 @@
 # ============================================================
-# Copilot+ PC -- NPU Demo Setup Script
+# Copilot+ PC -- NPU Demo Setup Script (v2)
 # Works on Intel Core Ultra (x64) and Qualcomm Snapdragon (ARM64)
 # ============================================================
-# Run in PowerShell (admin NOT required -- all installs are user-scope)
+# Run in PowerShell (admin NOT required unless Vision Service cert needs installing)
+#
+# Design principle: every step checks desired state first, installs only if
+# needed, then re-checks. Re-running this script is always safe.
 # ============================================================
 
-# --- Detect silicon ---
-# NOTE: On Windows-on-ARM, OSArchitecture may report X64 when running
-# under emulation. Use CPU name from WMI as the authoritative source.
+$ErrorActionPreference = 'Continue'
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# -------------------------------------------------------------------
+# Step function: check -> install -> re-check
+# -------------------------------------------------------------------
+$script:stepsPassed = 0
+$script:stepsFailed = 0
+$script:stepsSkipped = 0
+
+function Step {
+    param(
+        [string]$Name,
+        [scriptblock]$Check,
+        [scriptblock]$Install
+    )
+    Write-Host ""
+    Write-Host ">> $Name" -ForegroundColor Yellow -NoNewline
+    if (& $Check) {
+        Write-Host " [SKIP - already done]" -ForegroundColor Green
+        $script:stepsSkipped++
+        return $true
+    }
+    Write-Host ""  # newline after step name
+    & $Install
+    if (& $Check) {
+        Write-Host "   [OK]" -ForegroundColor Green
+        $script:stepsPassed++
+        return $true
+    }
+    Write-Host "   [FAIL]" -ForegroundColor Red
+    $script:stepsFailed++
+    return $false
+}
+
+# -------------------------------------------------------------------
+# Silicon detection
+# -------------------------------------------------------------------
 $cpuName = (Get-CimInstance Win32_Processor).Name
 $isARM = ($cpuName -match "Qualcomm|Snapdragon")
 
 if ($isARM) {
-    $silicon = "Qualcomm"
-    $chipLabel = "Snapdragon X NPU"
-    $modelAlias = "qwen2.5-7b"
-    $modelLabel = "Qwen 2.5 7B"
+    $silicon = "Qualcomm"; $chipLabel = "Snapdragon X NPU"
+    $modelAlias = "qwen2.5-7b"; $modelLabel = "Qwen 2.5 7B"
 } elseif ($cpuName -match "Intel") {
-    $silicon = "Intel"
-    $chipLabel = "Intel Core Ultra NPU"
-    $modelAlias = "phi-4-mini"
-    $modelLabel = "Phi-4 Mini"
+    $silicon = "Intel"; $chipLabel = "Intel Core Ultra NPU"
+    $modelAlias = "phi-4-mini"; $modelLabel = "Phi-4 Mini"
 } else {
-    # Fallback: check OS architecture
     $osArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
     if ($osArch -eq [System.Runtime.InteropServices.Architecture]::Arm64) {
-        $silicon = "ARM64"
-        $chipLabel = "ARM64 NPU"
-        $isARM = $true
-        $modelAlias = "qwen2.5-7b"
-        $modelLabel = "Qwen 2.5 7B"
+        $silicon = "ARM64"; $chipLabel = "ARM64 NPU"; $isARM = $true
+        $modelAlias = "qwen2.5-7b"; $modelLabel = "Qwen 2.5 7B"
     } else {
-        $silicon = "Intel"
-        $chipLabel = "Intel Core Ultra NPU"
-        $modelAlias = "phi-4-mini"
-        $modelLabel = "Phi-4 Mini"
+        $silicon = "Intel"; $chipLabel = "Intel Core Ultra NPU"
+        $modelAlias = "phi-4-mini"; $modelLabel = "Phi-4 Mini"
     }
 }
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "  Copilot+ PC - NPU Demo Setup" -ForegroundColor Cyan
+Write-Host "  Copilot+ PC - NPU Demo Setup (v2)" -ForegroundColor Cyan
 Write-Host "  Detected: $cpuName" -ForegroundColor Cyan
 Write-Host "  Platform: $silicon -- $chipLabel" -ForegroundColor Cyan
 Write-Host "  Model: $modelLabel ($modelAlias)" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "  Working directory: $ScriptDir" -ForegroundColor Gray
 
-# Get script directory
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Write-Host "Working directory: $ScriptDir" -ForegroundColor Gray
-Write-Host ""
-
-# ============================================================
-# Step 1: Check/Install Python
-# ============================================================
-Write-Host "Step 1: Checking Python installation..." -ForegroundColor Yellow
-
-$pythonInstalled = $false
-try {
-    $pythonVersion = python --version 2>&1
-    # Guard against the Windows Store stub, which prints an error
-    # string instead of "Python 3.x.x" and returns non-zero.
-    if ($LASTEXITCODE -eq 0 -and $pythonVersion -match "Python 3") {
-        Write-Host "[OK] Python already installed: $pythonVersion" -ForegroundColor Green
-        $pythonInstalled = $true
+# -------------------------------------------------------------------
+# Helper: resolve real Python (skip Microsoft Store stub)
+# -------------------------------------------------------------------
+function Find-Python {
+    $candidates = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python314\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
+        "$env:ProgramFiles\Python314\python.exe",
+        "$env:ProgramFiles\Python313\python.exe",
+        "$env:ProgramFiles\Python312\python.exe",
+        "$env:ProgramFiles\Python311\python.exe",
+        "$env:ProgramFiles\Python310\python.exe"
+    )
+    foreach ($p in $candidates) {
+        if (Test-Path $p) { return $p }
     }
-} catch {
-    $pythonInstalled = $false
+    # Last resort: Get-Command, skipping the WindowsApps Store stub
+    $cmd = Get-Command python.exe -ErrorAction SilentlyContinue |
+        Where-Object { $_.Source -notlike "*WindowsApps*" } |
+        Select-Object -First 1
+    if ($cmd) { return $cmd.Source }
+    return $null
 }
 
-if (-not $pythonInstalled) {
-    # winget auto-detects ARM64 vs x64 and picks the right installer
-    Write-Host "Installing Python 3.11 via winget (auto-detects architecture)..." -ForegroundColor Cyan
-    try {
-        winget install Python.Python.3.11 --accept-source-agreements --accept-package-agreements --scope user 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "[OK] Python installed" -ForegroundColor Green
-        } else {
-            throw "winget returned non-zero"
-        }
-    } catch {
-        Write-Host "[WARN] winget install failed. Trying direct download..." -ForegroundColor Yellow
-        if ($isARM) {
-            $pythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-arm64.exe"
-        } else {
-            $pythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
-        }
-        $pythonInstaller = "$env:TEMP\python-installer.exe"
-        try {
-            Invoke-WebRequest -Uri $pythonUrl -OutFile $pythonInstaller -UseBasicParsing
-            Write-Host "Installing Python..." -ForegroundColor Cyan
-            Start-Process $pythonInstaller -ArgumentList "/passive", "InstallAllUsers=0", "PrependPath=1" -Wait
-            Write-Host "[OK] Python installed" -ForegroundColor Green
-        } catch {
-            Write-Host "[FAIL] Could not install Python. Please install manually:" -ForegroundColor Red
-            Write-Host "   https://www.python.org/downloads/windows/" -ForegroundColor Yellow
-            Write-Host "   (Choose ARM64 for Snapdragon, x64 for Intel)" -ForegroundColor Yellow
-        }
-    }
-
-    # Refresh PATH so python/pip are available in this session
-    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
-}
-
-Write-Host ""
-
 # ============================================================
-# Step 2: Install Foundry Local (if not already installed)
+# Step 1: Python 3.10+
 # ============================================================
-Write-Host "Step 2: Checking Foundry Local installation..." -ForegroundColor Yellow
+$pythonExe = $null
 
-$foundryInstalled = $false
-try {
-    $foundryCheck = foundry --version 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[OK] Foundry Local CLI already installed: $foundryCheck" -ForegroundColor Green
-        $foundryInstalled = $true
-    }
-} catch {
-    $foundryInstalled = $false
-}
-
-if (-not $foundryInstalled) {
-    Write-Host "Installing Foundry Local via winget..." -ForegroundColor Cyan
-    try {
-        winget install Microsoft.FoundryLocal --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "[OK] Foundry Local installed" -ForegroundColor Green
-            $foundryInstalled = $true
-        } else {
-            throw "winget returned non-zero"
+Step "Python 3.10+" -Check {
+    $script:pythonExe = Find-Python
+    if ($script:pythonExe) {
+        $v = & $script:pythonExe --version 2>&1
+        if ($v -match "Python 3\.1[0-9]") {
+            Write-Host " ($v at $script:pythonExe)" -ForegroundColor Gray -NoNewline
+            return $true
         }
-    } catch {
-        Write-Host "[FAIL] Could not install Foundry Local." -ForegroundColor Red
-        Write-Host "   Try manually: winget install Microsoft.FoundryLocal" -ForegroundColor Yellow
     }
-
+    return $false
+} -Install {
+    Write-Host "   Installing Python 3.11 via winget..." -ForegroundColor Cyan
+    winget install Python.Python.3.11 --accept-source-agreements --accept-package-agreements --scope user 2>&1 | Select-Object -Last 3 | Out-Host
     # Refresh PATH
     $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
-}
-
-Write-Host ""
-
-# ============================================================
-# Step 3: Install Python Dependencies
-# ============================================================
-Write-Host "Step 3: Installing Python dependencies..." -ForegroundColor Yellow
-
-$requirementsPath = Join-Path $ScriptDir "requirements.txt"
-
-try {
-    pip install -r $requirementsPath 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[OK] Python dependencies installed" -ForegroundColor Green
-    } else {
-        Write-Host "   Trying individual package install..." -ForegroundColor Gray
-        pip install flask openai pypdf python-docx foundry-local-sdk
-        Write-Host "[OK] Python dependencies installed" -ForegroundColor Green
+    # Remove Store stubs if they exist
+    $stubs = @(
+        "$env:LOCALAPPDATA\Microsoft\WindowsApps\python.exe",
+        "$env:LOCALAPPDATA\Microsoft\WindowsApps\python3.exe"
+    )
+    foreach ($s in $stubs) {
+        if ((Test-Path $s) -and (Get-Item $s).Length -eq 0) {
+            Remove-Item $s -Force -ErrorAction SilentlyContinue
+        }
     }
-} catch {
-    Write-Host "[WARN] Some packages may have failed. Try manually:" -ForegroundColor Yellow
-    Write-Host "   pip install flask openai pypdf python-docx foundry-local-sdk" -ForegroundColor Cyan
+    $script:pythonExe = Find-Python
 }
 
-Write-Host ""
-
-# ============================================================
-# Step 4: Verify demo files exist
-# ============================================================
-Write-Host "Step 4: Verifying demo files..." -ForegroundColor Yellow
-
-# Check for exe (kit layout) or Python file (dev layout)
-$exePath = Join-Path $ScriptDir "app\npu-demo.exe"
-$pyPath = Join-Path $ScriptDir "npu_demo_flask.py"
-$missingFiles = @()
-
-if (Test-Path $exePath) {
-    Write-Host "[OK] npu-demo.exe (standalone app)" -ForegroundColor Green
-} elseif (Test-Path $pyPath) {
-    Write-Host "[OK] npu_demo_flask.py (Python app)" -ForegroundColor Green
-} else {
-    Write-Host "[MISSING] No app found (expected app\npu-demo.exe or npu_demo_flask.py)" -ForegroundColor Red
-    $missingFiles += "app"
+if (-not $pythonExe) {
+    Write-Host "[FATAL] Python not found after install. Aborting." -ForegroundColor Red
+    Write-Host "   Install Python 3.10+ manually: https://www.python.org/downloads/" -ForegroundColor Yellow
+    exit 1
 }
 
-# Check for demo data and tesseract in both layouts
-$demoDataPaths = @(
-    (Join-Path $ScriptDir "app\_internal\demo_data"),
-    (Join-Path $ScriptDir "demo_data")
-)
-$foundDemoData = $false
-foreach ($dd in $demoDataPaths) {
-    if (Test-Path $dd) {
-        Write-Host "[OK] demo_data/" -ForegroundColor Green
-        $foundDemoData = $true
-        break
+# ============================================================
+# Step 2: Foundry Local CLI
+# ============================================================
+Step "Foundry Local CLI" -Check {
+    try {
+        $v = foundry --version 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host " ($v)" -ForegroundColor Gray -NoNewline
+            return $true
+        }
+    } catch {}
+    return $false
+} -Install {
+    Write-Host "   Installing Foundry Local via winget..." -ForegroundColor Cyan
+    winget install Microsoft.FoundryLocal --accept-source-agreements --accept-package-agreements 2>&1 | Select-Object -Last 3 | Out-Host
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
+}
+
+# ============================================================
+# Step 3: Python dependencies
+# ============================================================
+Step "Python dependencies" -Check {
+    $r = & $pythonExe -c "import flask, openai, foundry_local, msal, pypdf, docx, yaml, psutil, requests; print('ALL_OK')" 2>&1
+    return ($r -match "ALL_OK")
+} -Install {
+    Write-Host "   Installing from requirements.txt..." -ForegroundColor Cyan
+    & $pythonExe -m pip install --upgrade pip 2>&1 | Select-Object -Last 1 | Out-Host
+    & $pythonExe -m pip install -r (Join-Path $ScriptDir "requirements.txt") 2>&1 | Select-Object -Last 5 | Out-Host
+    # If foundry-local-sdk 1.0.0+ snuck in, downgrade
+    $fCheck = & $pythonExe -c "from foundry_local import FoundryLocalManager; print('OK')" 2>&1
+    if ($fCheck -notmatch "OK") {
+        Write-Host "   foundry_local import failed -- pinning SDK <1.0.0..." -ForegroundColor Yellow
+        & $pythonExe -m pip install "foundry-local-sdk>=0.5.0,<1.0.0" 2>&1 | Select-Object -Last 2 | Out-Host
     }
 }
-if (-not $foundDemoData) {
-    Write-Host "[WARN] demo_data/ not found" -ForegroundColor Yellow
+
+# ============================================================
+# Step 4: .NET 8 runtime (Vision Service dependency)
+# ============================================================
+Step ".NET 8 runtime (NETCore + AspNetCore)" -Check {
+    $dotnet = "C:\Program Files\dotnet\dotnet.exe"
+    if (-not (Test-Path $dotnet)) { return $false }
+    $rt = & $dotnet --list-runtimes 2>&1
+    $hasBase = $rt -match "Microsoft\.NETCore\.App 8\.0\."
+    $hasAsp = $rt -match "Microsoft\.AspNetCore\.App 8\.0\."
+    return ($hasBase -and $hasAsp)
+} -Install {
+    Write-Host "   Installing .NET 8 runtimes via winget..." -ForegroundColor Cyan
+    winget install Microsoft.DotNet.Runtime.8 --accept-source-agreements --accept-package-agreements --silent 2>&1 | Out-Null
+    winget install Microsoft.DotNet.AspNetCore.8 --accept-source-agreements --accept-package-agreements --silent 2>&1 | Out-Null
 }
 
-$tesseractPaths = @(
-    (Join-Path $ScriptDir "app\_internal\tesseract"),
-    (Join-Path $ScriptDir "tesseract")
-)
-$foundTesseract = $false
-foreach ($tp in $tesseractPaths) {
-    if (Test-Path $tp) {
-        Write-Host "[OK] tesseract/ (offline OCR)" -ForegroundColor Green
-        $foundTesseract = $true
-        break
-    }
-}
-if (-not $foundTesseract) {
-    Write-Host "[WARN] tesseract/ not found (ID Verification tab will need online OCR)" -ForegroundColor Yellow
+# ============================================================
+# Step 5: Demo data directory
+# ============================================================
+Step "Demo data (My_Day + Inbox)" -Check {
+    return (Test-Path (Join-Path $ScriptDir "demo_data\My_Day\Inbox"))
+} -Install {
+    Write-Host "   Creating demo data directory..." -ForegroundColor Cyan
+    New-Item -Path (Join-Path $ScriptDir "demo_data\My_Day\Inbox") -ItemType Directory -Force | Out-Null
+    Write-Host "   [WARN] Add demo data files (calendar.ics, tasks.csv, emails) to demo_data\My_Day\" -ForegroundColor Yellow
 }
 
-Write-Host ""
-
 # ============================================================
-# Step 5: Setup demo data
+# Step 6: Foundry Local SDK import
 # ============================================================
-Write-Host "Step 5: Setting up demo data..." -ForegroundColor Yellow
-
-# Demo data lives inside the project repo (demo_data/) so it's self-contained
-$demoDir = Join-Path $PSScriptRoot "demo_data"
-$myDayDir = Join-Path $demoDir "My_Day"
-$inboxDir = Join-Path $myDayDir "Inbox"
-
-if (Test-Path $myDayDir) {
-    Write-Host "[OK] Demo data directory exists: $myDayDir" -ForegroundColor Green
-} else {
-    Write-Host "[INFO] Creating demo data directory: $myDayDir" -ForegroundColor Cyan
-    New-Item -Path $inboxDir -ItemType Directory -Force | Out-Null
-    Write-Host "[OK] Demo data directory created" -ForegroundColor Green
-    Write-Host "[WARN] Add demo data files (calendar.ics, tasks.csv, emails) to $myDayDir" -ForegroundColor Yellow
+Step "Foundry Local SDK import" -Check {
+    $r = & $pythonExe -c "from foundry_local import FoundryLocalManager; print('OK')" 2>&1
+    return ($r -match "OK")
+} -Install {
+    Write-Host "   Installing foundry-local-sdk..." -ForegroundColor Cyan
+    & $pythonExe -m pip install "foundry-local-sdk>=0.5.0,<1.0.0" 2>&1 | Select-Object -Last 2 | Out-Host
 }
 
-Write-Host ""
-
 # ============================================================
-# Step 6: Test Foundry Local SDK
+# Step 7: Vision Service MSIX (cert + package)
 # ============================================================
-Write-Host "Step 6: Testing Foundry Local SDK..." -ForegroundColor Yellow
-
-try {
-    $testResult = python -c "from foundry_local import FoundryLocalManager; print('OK')" 2>&1
-    if ($testResult -match "OK") {
-        Write-Host "[OK] Foundry Local SDK is importable" -ForegroundColor Green
-        Write-Host "   The app will auto-download $modelAlias on first run" -ForegroundColor Gray
-    } else {
-        Write-Host "[WARN] Foundry Local SDK import failed" -ForegroundColor Yellow
-        Write-Host "   Try: pip install foundry-local-sdk" -ForegroundColor Cyan
-    }
-} catch {
-    Write-Host "[WARN] Could not verify Foundry Local SDK" -ForegroundColor Yellow
-    Write-Host "   Try: pip install foundry-local-sdk" -ForegroundColor Cyan
-}
-
-Write-Host ""
-
-# ============================================================
-# Step 7: Vision Service (Phi Silica MSIX)
-# ============================================================
-Write-Host "Step 7: Setting up Vision Service (Phi Silica)..." -ForegroundColor Yellow
-
-$visionServiceDir = Join-Path $ScriptDir "vision-service"
-$msixTestDir = Join-Path $visionServiceDir "AppPackages\vision-service_1.0.0.0_x64_Test"
+$msixTestDir = Join-Path $ScriptDir "vision-service\AppPackages\vision-service_1.0.0.0_x64_Test"
 $msixPath = Join-Path $msixTestDir "vision-service_1.0.0.0_x64.msix"
 
-if (Test-Path $msixPath) {
-    # Check if already installed
-    $existingPkg = Get-AppxPackage -Name 'Microsoft.NPUDemo.VisionService' -ErrorAction SilentlyContinue
-    if ($existingPkg) {
-        Write-Host "[OK] Vision Service already installed" -ForegroundColor Green
-        Write-Host "   PFN: $($existingPkg.PackageFamilyName)" -ForegroundColor Gray
-    } else {
-        Write-Host "Installing Vision Service MSIX..." -ForegroundColor Cyan
+Step "Vision Service MSIX" -Check {
+    $pkg = Get-AppxPackage -Name 'Microsoft.NPUDemo.VisionService' -ErrorAction SilentlyContinue
+    if ($pkg) {
+        Write-Host " (v$($pkg.Version))" -ForegroundColor Gray -NoNewline
+        return $true
+    }
+    return $false
+} -Install {
+    if (-not (Test-Path $msixPath)) {
+        Write-Host "   [SKIP] Pre-built MSIX not found at: $msixPath" -ForegroundColor Gray
+        return
+    }
 
-        # Step 7a: Install signing certificate in both Trusted Root CA and Trusted People
-        # MSIX requires the self-signed cert in BOTH stores
-        Write-Host "   Setting up signing certificate..." -ForegroundColor Gray
-        $certFile = $null
-        # Look for .cer file in the MSIX test directory
-        $cerSearch = Get-ChildItem -Path $msixTestDir -Filter "*.cer" -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($cerSearch) {
-            $certFile = $cerSearch.FullName
-        } else {
-            # Try the scripts directory
-            $cerSearch2 = Get-ChildItem -Path (Join-Path $visionServiceDir "scripts") -Filter "*.cer" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($cerSearch2) { $certFile = $cerSearch2.FullName }
-        }
+    # Find the signing cert (.cer) -- NEVER regenerate, only use bundled certs
+    $certFile = $null
+    $cerCandidates = @(
+        (Join-Path $ScriptDir "vision-service\scripts\FrankBu_Original.cer"),
+        (Join-Path $ScriptDir "vision-service\scripts\FrankBu.cer")
+    )
+    # Also check the MSIX test directory
+    $cerCandidates += (Get-ChildItem -Path $msixTestDir -Filter "*.cer" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    foreach ($c in $cerCandidates) {
+        if (Test-Path $c) { $certFile = $c; break }
+    }
 
-        # Also try the existing setup-cert.ps1 script first
-        $certScript = Join-Path $visionServiceDir "scripts\setup-cert.ps1"
-        if (Test-Path $certScript) {
-            try {
-                & $certScript 2>&1 | Out-Null
-            } catch { }
-        }
+    if (-not $certFile) {
+        Write-Host "   [WARN] No .cer file found. Enable Developer Mode as an alternative." -ForegroundColor Yellow
+        Write-Host "   Settings > System > For developers > Developer Mode" -ForegroundColor Cyan
+        return
+    }
 
-        # Manually install cert to both required stores (needs elevation)
-        if ($certFile -and (Test-Path $certFile)) {
-            Write-Host "   Installing cert to Trusted Root CA and Trusted People..." -ForegroundColor Gray
+    Write-Host "   Using cert: $certFile" -ForegroundColor Gray
 
-            # Check if already running as admin
-            $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-
-            if ($isAdmin) {
-                # Already elevated, install directly
-                try {
-                    $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certFile)
-                    $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "LocalMachine")
-                    $rootStore.Open("ReadWrite")
-                    $rootStore.Add($cert)
-                    $rootStore.Close()
-                    $peopleStore = New-Object System.Security.Cryptography.X509Certificates.X509Store("TrustedPeople", "LocalMachine")
-                    $peopleStore.Open("ReadWrite")
-                    $peopleStore.Add($cert)
-                    $peopleStore.Close()
-                    Write-Host "   [OK] Certificate installed in Trusted Root CA + Trusted People" -ForegroundColor Green
-                } catch {
-                    Write-Host "   [WARN] Certificate install failed: $_" -ForegroundColor Yellow
-                }
-            } else {
-                # Not admin -- spawn an elevated subprocess just for the cert import (UAC prompt)
-                Write-Host "   Requesting admin elevation for certificate install (UAC prompt)..." -ForegroundColor Cyan
-                $certScript = @"
+    # Install cert to both Trusted Root CA and Trusted People (requires elevation)
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $certInstallScript = @"
 `$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('$certFile')
 `$rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
-`$rootStore.Open('ReadWrite')
-`$rootStore.Add(`$cert)
-`$rootStore.Close()
+`$rootStore.Open('ReadWrite'); `$rootStore.Add(`$cert); `$rootStore.Close()
 `$peopleStore = New-Object System.Security.Cryptography.X509Certificates.X509Store('TrustedPeople', 'LocalMachine')
-`$peopleStore.Open('ReadWrite')
-`$peopleStore.Add(`$cert)
-`$peopleStore.Close()
+`$peopleStore.Open('ReadWrite'); `$peopleStore.Add(`$cert); `$peopleStore.Close()
 "@
-                try {
-                    $proc = Start-Process powershell -ArgumentList "-NoProfile", "-Command", $certScript -Verb RunAs -Wait -PassThru
-                    if ($proc.ExitCode -eq 0) {
-                        Write-Host "   [OK] Certificate installed via elevated prompt" -ForegroundColor Green
-                    } else {
-                        Write-Host "   [WARN] Elevated cert install returned exit code $($proc.ExitCode)" -ForegroundColor Yellow
-                    }
-                } catch {
-                    Write-Host "   [WARN] UAC elevation was declined or failed." -ForegroundColor Yellow
-                    Write-Host "   Vision Service will be skipped. The app works without it." -ForegroundColor Yellow
-                    Write-Host "   To install later, run setup.ps1 as Administrator." -ForegroundColor Cyan
-                }
-            }
-        } else {
-            Write-Host "   [WARN] No .cer file found. Vision Service MSIX may fail to install." -ForegroundColor Yellow
-            Write-Host "   Enable Developer Mode as an alternative: Settings > System > For developers" -ForegroundColor Cyan
-        }
 
-        # Step 7b: Install Windows App Runtime 1.8 dependency
-        Write-Host "   Installing Windows App Runtime 1.8..." -ForegroundColor Gray
+    if ($isAdmin) {
         try {
-            winget install Microsoft.WindowsAppRuntime.1.8 --accept-source-agreements --accept-package-agreements --silent 2>&1 | Out-Null
-            Write-Host "   [OK] Windows App Runtime 1.8 installed" -ForegroundColor Green
+            Invoke-Expression $certInstallScript
+            Write-Host "   Cert installed to Trusted Root + Trusted People" -ForegroundColor Gray
         } catch {
-            Write-Host "   [WARN] Could not install via winget. Trying MSIX dependency..." -ForegroundColor Yellow
-            $runtimeMsix = Join-Path $msixTestDir "Dependencies\x64\Microsoft.WindowsAppRuntime.1.8.msix"
-            if (Test-Path $runtimeMsix) {
-                try {
-                    Add-AppxPackage -Path $runtimeMsix -ErrorAction SilentlyContinue
-                    Write-Host "   [OK] Windows App Runtime installed from MSIX" -ForegroundColor Green
-                } catch {
-                    Write-Host "   [WARN] Runtime install failed -- Vision Service may not start" -ForegroundColor Yellow
-                }
-            }
+            Write-Host "   [WARN] Cert install failed: $_" -ForegroundColor Yellow
+            return
         }
-
-        # Step 7c: Verify cert is trusted before attempting MSIX install
-        Write-Host "   Verifying certificate trust..." -ForegroundColor Gray
-        $certTrusted = $false
+    } else {
+        Write-Host "   Requesting admin elevation for certificate install (UAC prompt)..." -ForegroundColor Cyan
         try {
-            $trustedCerts = Get-ChildItem Cert:\LocalMachine\TrustedPeople -ErrorAction SilentlyContinue
-            $rootCerts = Get-ChildItem Cert:\LocalMachine\Root -ErrorAction SilentlyContinue
-            # Check for our cert thumbprint (CN=FrankBu)
-            $targetThumb = "D105059461CAEB607A40723E92CBDFB91917A570"
-            if (($trustedCerts | Where-Object { $_.Thumbprint -eq $targetThumb }) -and
-                ($rootCerts | Where-Object { $_.Thumbprint -eq $targetThumb })) {
-                $certTrusted = $true
+            $proc = Start-Process powershell -ArgumentList "-NoProfile", "-Command", $certInstallScript -Verb RunAs -Wait -PassThru
+            if ($proc.ExitCode -ne 0) {
+                Write-Host "   [WARN] Elevated cert install returned exit code $($proc.ExitCode)" -ForegroundColor Yellow
+                return
             }
-        } catch { }
-
-        if ($certTrusted) {
-            Write-Host "   Installing Vision Service package..." -ForegroundColor Gray
-            try {
-                Add-AppxPackage -Path $msixPath
-                $pkg = Get-AppxPackage -Name 'Microsoft.NPUDemo.VisionService' -ErrorAction SilentlyContinue
-                if ($pkg) {
-                    Write-Host "   [OK] Vision Service installed" -ForegroundColor Green
-                    Write-Host "   PFN: $($pkg.PackageFamilyName)" -ForegroundColor Gray
-                } else {
-                    Write-Host "   [WARN] Install command ran but package not found" -ForegroundColor Yellow
-                }
-            } catch {
-                Write-Host "   [FAIL] Could not install MSIX: $_" -ForegroundColor Red
-                Write-Host "      Try: Enable Developer Mode (Settings > For developers)" -ForegroundColor Yellow
-            }
-        } else {
-            Write-Host "   [SKIP] Signing certificate not trusted -- skipping MSIX install." -ForegroundColor Yellow
-            Write-Host "   The app works without Vision Service (Phi Silica features disabled)." -ForegroundColor Yellow
-            Write-Host "   To install later: run setup.ps1 as Administrator." -ForegroundColor Cyan
+            Write-Host "   Cert installed via elevated prompt" -ForegroundColor Gray
+        } catch {
+            Write-Host "   [WARN] UAC elevation declined. Vision Service skipped." -ForegroundColor Yellow
+            Write-Host "   The app works without it. To install later, run setup.ps1 as Administrator." -ForegroundColor Cyan
+            return
         }
     }
-} else {
-    Write-Host "[SKIP] Pre-built MSIX not found at: $msixPath" -ForegroundColor Gray
-    Write-Host "   To build from source: vision-service\scripts\rebuild-msix.ps1" -ForegroundColor Cyan
+
+    # Verify cert is trusted before MSIX install
+    try {
+        $certObj = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certFile)
+        $thumb = $certObj.Thumbprint
+        $inRoot = Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Thumbprint -eq $thumb }
+        $inPeople = Get-ChildItem Cert:\LocalMachine\TrustedPeople | Where-Object { $_.Thumbprint -eq $thumb }
+        if (-not ($inRoot -and $inPeople)) {
+            Write-Host "   [WARN] Cert not in both stores. MSIX install may fail." -ForegroundColor Yellow
+        }
+    } catch {}
+
+    # Install Windows App Runtime dependency
+    try {
+        winget install Microsoft.WindowsAppRuntime.1.8 --accept-source-agreements --accept-package-agreements --silent 2>&1 | Out-Null
+    } catch {
+        $runtimeMsix = Join-Path $msixTestDir "Dependencies\x64\Microsoft.WindowsAppRuntime.1.8.msix"
+        if (Test-Path $runtimeMsix) {
+            Add-AppxPackage -Path $runtimeMsix -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Install the MSIX package
+    Write-Host "   Installing Vision Service package..." -ForegroundColor Gray
+    try {
+        Add-AppxPackage -Path $msixPath
+    } catch {
+        Write-Host "   [WARN] MSIX install failed: $_" -ForegroundColor Yellow
+        Write-Host "   Try: Enable Developer Mode (Settings > For developers)" -ForegroundColor Cyan
+    }
 }
 
-Write-Host ""
-
 # ============================================================
-# Step 8: Pre-download model (optional but saves time on first run)
+# Step 8: Pre-download model
 # ============================================================
-Write-Host "Step 8: Pre-downloading model..." -ForegroundColor Yellow
-
-if ($foundryInstalled) {
+Step "Model cache ($modelLabel)" -Check {
     try {
-        # Check if model is already cached by starting service briefly
+        $cache = foundry cache ls 2>&1
+        return ($cache -match [regex]::Escape($modelAlias))
+    } catch { return $false }
+} -Install {
+    Write-Host "   Pre-downloading $modelLabel ($modelAlias) -- ~2-3 GB..." -ForegroundColor Cyan
+    try {
         foundry service start 2>&1 | Out-Null
         Start-Sleep -Seconds 2
-
-        $modelList = foundry model list 2>&1
-        if ($modelList -match $modelAlias) {
-            Write-Host "[OK] $modelLabel ($modelAlias) is available in Foundry catalog" -ForegroundColor Green
-            Write-Host "   Pre-downloading model to avoid delay on first demo..." -ForegroundColor Gray
-            Write-Host "   (This may take a few minutes for ~3 GB download)" -ForegroundColor Gray
-            try {
-                # Loading the model via chat triggers the download if not cached
-                $testResult = python -c @"
+        $dlScript = @"
+import sys, time
 from foundry_local import FoundryLocalManager
-mgr = FoundryLocalManager()
-model_id = mgr.download_model('$modelAlias')
-print(f'OK: {model_id}')
-"@ 2>&1
-                if ($testResult -match "OK:") {
-                    Write-Host "[OK] Model downloaded and cached: $testResult" -ForegroundColor Green
-                } else {
-                    Write-Host "[INFO] Model will download on first app launch" -ForegroundColor Gray
-                }
-            } catch {
-                Write-Host "[INFO] Model will download on first app launch (~3 GB)" -ForegroundColor Gray
-            }
-        } else {
-            Write-Host "[WARN] $modelAlias not found in catalog" -ForegroundColor Yellow
+print('[Foundry] Initializing...', flush=True)
+mgr = FoundryLocalManager('$modelAlias')
+print(f'[Foundry] Endpoint: {mgr.endpoint}', flush=True)
+t0 = time.time()
+try:
+    model_id = mgr.download_model('$modelAlias')
+    print(f'[Foundry] DONE in {time.time()-t0:.0f}s -- model_id: {model_id}', flush=True)
+except Exception as e:
+    print(f'[Foundry] FAIL: {type(e).__name__}: {e}', flush=True)
+    sys.exit(1)
+"@
+        & $pythonExe -u -c $dlScript 2>&1 | ForEach-Object {
+            if ($_ -match "DONE in") { Write-Host "   $_" -ForegroundColor Green }
+            elseif ($_ -match "FAIL:") { Write-Host "   $_" -ForegroundColor Yellow }
+            else { Write-Host "   $_" -ForegroundColor Gray }
         }
-
         foundry service stop 2>&1 | Out-Null
     } catch {
-        Write-Host "[SKIP] Could not check model catalog" -ForegroundColor Gray
+        Write-Host "   [WARN] Model download failed: $_" -ForegroundColor Yellow
+        Write-Host "   The app will download on first launch." -ForegroundColor Gray
     }
-} else {
-    Write-Host "[SKIP] Foundry Local not installed -- skipping model download" -ForegroundColor Gray
 }
 
-Write-Host ""
+# ============================================================
+# Step 9: Patch run.bat with PYTHONPYCACHEPREFIX
+# ============================================================
+$runBat = Join-Path $ScriptDir "run.bat"
+
+Step "run.bat PYTHONPYCACHEPREFIX" -Check {
+    if (-not (Test-Path $runBat)) { return $false }
+    return (Select-String -Path $runBat -Pattern 'PYTHONPYCACHEPREFIX' -Quiet)
+} -Install {
+    if (-not (Test-Path $runBat)) {
+        Write-Host "   [SKIP] run.bat not found" -ForegroundColor Gray
+        return
+    }
+    Write-Host "   Patching run.bat to set PYTHONPYCACHEPREFIX..." -ForegroundColor Cyan
+    $content = Get-Content $runBat -Raw
+    # Insert the SET line before the python launch line
+    $content = $content -replace '(python npu_demo_flask\.py)', "SET PYTHONPYCACHEPREFIX=%LOCALAPPDATA%\NPUDemo\__pycache__`r`n`$1"
+    Set-Content -Path $runBat -Value $content -NoNewline
+}
+
+# ============================================================
+# Step 10: Local state directory
+# ============================================================
+$localStateDir = Join-Path $env:LOCALAPPDATA "NPUDemo"
+
+Step "Local state directory ($localStateDir)" -Check {
+    return (Test-Path $localStateDir)
+} -Install {
+    New-Item -Path $localStateDir -ItemType Directory -Force | Out-Null
+}
 
 # ============================================================
 # Summary
 # ============================================================
+Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "  Setup Complete" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
@@ -473,24 +400,23 @@ Write-Host ""
 Write-Host "  Silicon:  $cpuName" -ForegroundColor White
 Write-Host "  Platform: $silicon -- $chipLabel" -ForegroundColor White
 Write-Host "  Model:    $modelLabel ($modelAlias)" -ForegroundColor White
+Write-Host "  Python:   $pythonExe" -ForegroundColor White
+Write-Host ""
+Write-Host "  Steps: $($script:stepsPassed) installed, $($script:stepsSkipped) skipped, $($script:stepsFailed) failed" -ForegroundColor $(if ($script:stepsFailed -gt 0) { "Yellow" } else { "Green" })
 Write-Host ""
 
-if ($missingFiles.Count -gt 0) {
-    Write-Host "[WARN] Missing files: $($missingFiles -join ', ')" -ForegroundColor Red
+if ($script:stepsFailed -gt 0) {
+    Write-Host "  Some steps failed. Review the output above." -ForegroundColor Yellow
+    Write-Host "  Re-run setup.ps1 after fixing issues -- it will skip completed steps." -ForegroundColor Gray
+} else {
+    Write-Host "  Next steps:" -ForegroundColor Green
+    Write-Host "    1. Verify:  .\verify.ps1" -ForegroundColor Cyan
+    Write-Host "    2. Launch:  .\start-demo.ps1" -ForegroundColor Cyan
+    Write-Host "    3. Stop:    .\stop-demo.ps1" -ForegroundColor Cyan
     Write-Host ""
+    Write-Host "  Or launch manually:" -ForegroundColor Gray
+    Write-Host "    python npu_demo_flask.py              (with D365/Graph tenants)" -ForegroundColor Gray
+    Write-Host "    python npu_demo_flask.py --demo-mode  (standalone, no tenants needed)" -ForegroundColor Gray
 }
-
-Write-Host "To launch the demo (starts all 3 services + opens browser):" -ForegroundColor Green
-Write-Host ""
-Write-Host "   .\start-demo.ps1" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "To stop all services:" -ForegroundColor Green
-Write-Host ""
-Write-Host "   .\stop-demo.ps1" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "Or start manually:" -ForegroundColor Gray
-Write-Host "   python npu_demo_flask.py    (Flask app on localhost:5000)" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Silicon auto-detected: the app will brand itself for $chipLabel." -ForegroundColor Gray
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
