@@ -1428,6 +1428,184 @@ Title: General Counsel
 Date: January 15, 2026
 """)
 
+# --- Bing Web Search Integration ---
+# Allows the on-device AI to search the web for current information.
+# The AI reasoning stays local (NPU); only the search query hits Bing.
+# Key is loaded from .bing-search.env in repo root or LOCALAPPDATA.
+
+_BING_SEARCH_KEY = None
+_BING_SEARCH_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
+
+def _load_bing_key():
+    """Load Bing Search API key from .env file."""
+    global _BING_SEARCH_KEY
+    # Check repo root first, then LOCALAPPDATA
+    for path in [
+        os.path.join(_APP_ROOT, '.bing-search.env'),
+        os.path.join(LOCAL_STATE_DIR, 'bing-search.env'),
+    ]:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith('BING_SEARCH_KEY=') and not line.startswith('#'):
+                            _BING_SEARCH_KEY = line.split('=', 1)[1].strip().strip('"').strip("'")
+                            print(f"  Bing Search: API key loaded from {os.path.basename(path)}")
+                            return
+            except Exception:
+                pass
+    # Also check environment variable
+    env_key = os.environ.get('BING_SEARCH_KEY')
+    if env_key:
+        _BING_SEARCH_KEY = env_key
+        print("  Bing Search: API key loaded from environment variable")
+
+_load_bing_key()
+
+
+def _bing_web_search(query, count=5):
+    """Search the web via Bing Search API v7.
+    Returns list of {title, snippet, url} dicts, or error string.
+    The query is scrubbed of PII/PHI before sending."""
+    if not _BING_SEARCH_KEY:
+        return {"error": "Bing Search API key not configured. Add BING_SEARCH_KEY to .bing-search.env"}
+
+    # Scrub PII/PHI from the query before it leaves the device
+    scrubbed_query = _scrub_search_query(query)
+
+    try:
+        import requests as _req
+        headers = {"Ocp-Apim-Subscription-Key": _BING_SEARCH_KEY}
+        params = {
+            "q": scrubbed_query,
+            "count": count,
+            "mkt": "en-US",
+            "responseFilter": "Webpages",
+            "safeSearch": "Moderate",
+        }
+        resp = _req.get(_BING_SEARCH_ENDPOINT, headers=headers, params=params, timeout=8)
+        resp.raise_for_status()
+        data = resp.json()
+
+        results = []
+        for page in data.get("webPages", {}).get("value", [])[:count]:
+            results.append({
+                "title": page.get("name", ""),
+                "snippet": page.get("snippet", "")[:250],
+                "url": page.get("url", ""),
+            })
+
+        return {
+            "query": scrubbed_query,
+            "results": results,
+            "count": len(results),
+        }
+    except Exception as e:
+        return {"error": f"Bing Search failed: {type(e).__name__}: {e}"}
+
+
+def _scrub_search_query(query):
+    """Remove PII/PHI from a search query before sending to Bing.
+    Strips person names, MRNs, SSNs, phone numbers, emails.
+    Only clinical/financial terminology should reach the search API."""
+    scrubbed = query
+    # Remove SSNs
+    scrubbed = re.sub(r'\b\d{3}-\d{2}-\d{4}\b', '', scrubbed)
+    # Remove phone numbers
+    scrubbed = re.sub(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', '', scrubbed)
+    # Remove emails
+    scrubbed = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '', scrubbed)
+    # Remove MRN patterns (MRN-XXXXXX)
+    scrubbed = re.sub(r'\bMRN[-#]?\d+\b', '', scrubbed, flags=re.IGNORECASE)
+    # Remove known demo person names (from config if available)
+    _demo_names = []
+    if RESOLVED_CONFIG:
+        _demo_names = RESOLVED_CONFIG.get("pii", {}).get("demo_person_names", [])
+    if not _demo_names:
+        _demo_names = ["Jackie Rodriguez", "Marcus Chen", "Sarah Henderson",
+                       "Jordan Lee", "Maya Patel", "Sam Torres",
+                       "Alan Thornbury", "Michael Torres", "Frank Bu"]
+    for name in _demo_names:
+        scrubbed = scrubbed.replace(name, "")
+        # Also remove first/last individually
+        parts = name.split()
+        for part in parts:
+            if len(part) > 2:  # don't remove tiny words
+                scrubbed = re.sub(r'\b' + re.escape(part) + r'\b', '', scrubbed, flags=re.IGNORECASE)
+    # Clean up extra spaces
+    scrubbed = re.sub(r'\s+', ' ', scrubbed).strip()
+    return scrubbed
+
+
+# Hardcoded demo search results for offline/demo-mode
+_DEMO_SEARCH_RESULTS = {
+    "529": {
+        "query": "529 college savings plan contribution limits 2026",
+        "results": [
+            {"title": "529 Plan Contribution Limits for 2026 - IRS.gov",
+             "snippet": "The annual gift tax exclusion for 2026 is $18,000 per beneficiary ($36,000 for married couples). There is no federal limit on total 529 contributions, but most state plans cap lifetime contributions between $235,000 and $550,000.",
+             "url": "https://www.irs.gov/529-plans"},
+            {"title": "529 Plan Tax Benefits Explained - Investopedia",
+             "snippet": "Withdrawals for qualified education expenses are tax-free at the federal level. Many states also offer a state income tax deduction or credit for contributions.",
+             "url": "https://www.investopedia.com/529-plan-tax-benefits"},
+            {"title": "Comparing 529 Plans by State - Savingforcollege.com",
+             "snippet": "Each state sponsors at least one 529 plan. You can invest in any state's plan regardless of residency, but your home state plan may offer additional tax benefits.",
+             "url": "https://www.savingforcollege.com/compare-529-plans"},
+        ],
+        "count": 3,
+    },
+    "roth ira": {
+        "query": "Roth IRA vs traditional IRA contribution limits age 45 2026",
+        "results": [
+            {"title": "Roth IRA Contribution Limits 2026 - IRS.gov",
+             "snippet": "The 2026 Roth IRA contribution limit is $7,000 ($8,000 if age 50+). Income phase-out: $150,000-$165,000 (single), $236,000-$246,000 (married filing jointly).",
+             "url": "https://www.irs.gov/roth-ira-limits"},
+            {"title": "Roth vs Traditional IRA: Which Is Right for You? - NerdWallet",
+             "snippet": "Choose Roth if you expect to be in a higher tax bracket in retirement. Choose Traditional if you want the tax deduction now. At age 45, you have 20+ years of tax-free growth potential with a Roth.",
+             "url": "https://www.nerdwallet.com/roth-vs-traditional-ira"},
+            {"title": "IRA Catch-Up Contributions for Ages 50+ - Fidelity",
+             "snippet": "Starting at age 50, you can contribute an extra $1,000/year to your IRA. At 45, you have 5 years before catch-up eligibility begins.",
+             "url": "https://www.fidelity.com/ira-catch-up"},
+        ],
+        "count": 3,
+    },
+    "a1c": {
+        "query": "ADA A1C target guidelines type 2 diabetes 2026",
+        "results": [
+            {"title": "Standards of Care in Diabetes 2026 - American Diabetes Association",
+             "snippet": "The ADA recommends an A1C target of less than 7% for most nonpregnant adults. More or less stringent targets (6.0-8.0%) may be appropriate depending on patient factors including hypoglycemia risk, disease duration, and comorbidities.",
+             "url": "https://diabetesjournals.org/care/standards-of-care"},
+            {"title": "A1C Test and Diabetes - CDC",
+             "snippet": "A1C reflects average blood glucose over the past 2-3 months. Normal: below 5.7%. Prediabetes: 5.7-6.4%. Diabetes: 6.5% or higher. Testing should occur at least twice yearly for patients meeting treatment goals.",
+             "url": "https://www.cdc.gov/diabetes/a1c"},
+            {"title": "Individualizing A1C Targets in Type 2 Diabetes - UpToDate",
+             "snippet": "Consider patient age, comorbidities, hypoglycemia risk, and life expectancy when setting targets. Newly diagnosed patients with long life expectancy may benefit from more intensive control (A1C <6.5%).",
+             "url": "https://www.uptodate.com/a1c-targets"},
+        ],
+        "count": 3,
+    },
+}
+
+
+def _get_demo_search_results(query):
+    """Return hardcoded search results for known demo queries."""
+    q = query.lower()
+    for key, results in _DEMO_SEARCH_RESULTS.items():
+        if key in q:
+            return results
+    # Generic fallback
+    return {
+        "query": query,
+        "results": [
+            {"title": f"Search results for: {query}",
+             "snippet": "Demo mode: live web search is available when the Bing Search API key is configured. This is a placeholder result.",
+             "url": "https://www.bing.com/search?q=" + query.replace(" ", "+")},
+        ],
+        "count": 1,
+    }
+
+
 # --- Local Knowledge Index ---
 KNOWLEDGE_INDEX = {}  # {filename: {"text": str, "path": str, "word_count": int, "terms": dict}}
 
@@ -1546,8 +1724,16 @@ AGENT_SYSTEM_PROMPT = (
     'CALENDAR & PRODUCTIVITY TOOLS:\n'
     '- my_calendar_today(): Get today\'s calendar events, meetings, and appointments.\n'
     '- prep_next_client(customer_name): Get client meeting from calendar and look up their D365 profile. Pass the client name if known.\n\n'
+    'WEB SEARCH (Bing -- queries the web for current information):\n'
+    '- web_search(query): Search the web via Bing. Returns titles, snippets, and URLs.\n'
+    '  Use when the user asks about current regulations, guidelines, rates, news, or anything\n'
+    '  that may have changed after your training data. Formulate a concise, specific search query.\n'
+    '  NEVER include customer names, MRNs, SSNs, or any personal information in the query.\n'
+    '  After receiving results, synthesize them into a helpful answer with source citations.\n\n'
     'RULES:\n'
-    '- For general knowledge questions (529 plans, IRA rules, banking regulations), answer directly. Do NOT use tools.\n'
+    '- For general knowledge questions you are confident about, answer directly. Do NOT use tools.\n'
+    '- Use web_search when the user asks about current guidelines, recent changes, specific regulations,\n'
+    '  or anything where up-to-date information matters more than general knowledge.\n'
     '- Use D365 tools when the user asks about a customer, the queue, or wants to log something.\n'
     '- Use calendar tools when the user asks about their schedule, next meeting, or wants to prep.\n'
     '- Use local tools when the user asks to read/write files or run commands.\n'
@@ -1569,7 +1755,9 @@ AGENT_SYSTEM_PROMPT = (
     '[TOOL_CALL]\n{"name": "d365_log_activity", "arguments": {"customer_name": "Jackie Rodriguez", "note": "Discussed 529 plan options"}}\n[/TOOL_CALL]\n\n'
     '[TOOL_CALL]\n{"name": "d365_recent_activities", "arguments": {"customer_name": "Jackie Rodriguez"}}\n[/TOOL_CALL]\n\n'
     '[TOOL_CALL]\n{"name": "my_calendar_today", "arguments": {}}\n[/TOOL_CALL]\n\n'
-    '[TOOL_CALL]\n{"name": "prep_next_client", "arguments": {"customer_name": "Jackie Rodriguez"}}\n[/TOOL_CALL]'
+    '[TOOL_CALL]\n{"name": "prep_next_client", "arguments": {"customer_name": "Jackie Rodriguez"}}\n[/TOOL_CALL]\n\n'
+    'Web search example:\n'
+    '[TOOL_CALL]\n{"name": "web_search", "arguments": {"query": "529 plan contribution limits 2026"}}\n[/TOOL_CALL]'
 )
 
 # --- My Day infrastructure ---
@@ -1882,6 +2070,29 @@ def execute_tool(name, arguments):
             if DEMO_MODE:
                 return {"success": True, "output": json.dumps({"source": "demo", "activities": [{"date": "2026-04-28", "type": "task", "subject": "529 plan consultation", "status": "completed"}, {"date": "2026-04-21", "type": "note", "subject": "Account review completed", "status": "completed"}]})}
             return {"success": False, "error": f"D365 MCP error: {e}"}
+
+    elif name == "web_search":
+        query = (arguments.get("query") or "").strip()
+        if not query:
+            return {"success": False, "error": "No search query provided"}
+        # In demo mode without a Bing key, return hardcoded results
+        if not _BING_SEARCH_KEY:
+            if DEMO_MODE:
+                demo_results = _get_demo_search_results(query)
+                _formatted = f"Web Search Results for: {demo_results['query']}\n(Source: Demo mode — configure Bing API key for live search)\n\n"
+                for i, r in enumerate(demo_results.get("results", []), 1):
+                    _formatted += f"{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n\n"
+                return {"success": True, "output": _formatted}
+            return {"success": False, "error": "Bing Search API key not configured. Add BING_SEARCH_KEY to .bing-search.env"}
+        # Live search
+        search_result = _bing_web_search(query, count=5)
+        if "error" in search_result:
+            return {"success": False, "error": search_result["error"]}
+        # Format results for the model to synthesize
+        _formatted = f"Web Search Results for: {search_result['query']}\n({search_result['count']} results from Bing)\n\n"
+        for i, r in enumerate(search_result.get("results", []), 1):
+            _formatted += f"{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n\n"
+        return {"success": True, "output": _formatted[:3000]}  # Cap at 3000 chars for context budget
 
     elif name == "my_calendar_today":
         try:
