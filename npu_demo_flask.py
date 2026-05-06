@@ -1428,81 +1428,140 @@ Title: General Counsel
 Date: January 15, 2026
 """)
 
-# --- Bing Web Search Integration ---
+# --- Web Search Integration ---
 # Allows the on-device AI to search the web for current information.
-# The AI reasoning stays local (NPU); only the search query hits Bing.
-# Key is loaded from .bing-search.env in repo root or LOCALAPPDATA.
+# The AI reasoning stays local (NPU); only the search query hits the cloud.
+# Supports: Bing Search v7 (preferred) or Google Custom Search (fallback).
+# Keys loaded from .bing-search.env in repo root or LOCALAPPDATA.
 
 _BING_SEARCH_KEY = None
 _BING_SEARCH_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
+_GOOGLE_API_KEY = None
+_GOOGLE_CX = None
+_GOOGLE_SEARCH_ENDPOINT = "https://www.googleapis.com/customsearch/v1"
+_TAVILY_API_KEY = None
+_TAVILY_ENDPOINT = "https://api.tavily.com/search"
+_WEB_SEARCH_PROVIDER = None  # "bing", "google", "tavily", or None
 
-def _load_bing_key():
-    """Load Bing Search API key from .env file."""
-    global _BING_SEARCH_KEY
+
+def _load_search_keys():
+    """Load web search API keys from .env file. Priority: Bing > Google > Tavily."""
+    global _BING_SEARCH_KEY, _GOOGLE_API_KEY, _GOOGLE_CX, _TAVILY_API_KEY, _WEB_SEARCH_PROVIDER
     # Check repo root first, then LOCALAPPDATA
     for path in [
         os.path.join(_APP_ROOT, '.bing-search.env'),
         os.path.join(LOCAL_STATE_DIR, 'bing-search.env'),
     ]:
-        if os.path.exists(path):
-            try:
-                with open(path, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith('BING_SEARCH_KEY=') and not line.startswith('#'):
-                            _BING_SEARCH_KEY = line.split('=', 1)[1].strip().strip('"').strip("'")
-                            print(f"  Bing Search: API key loaded from {os.path.basename(path)}")
-                            return
-            except Exception:
-                pass
-    # Also check environment variable
-    env_key = os.environ.get('BING_SEARCH_KEY')
-    if env_key:
-        _BING_SEARCH_KEY = env_key
-        print("  Bing Search: API key loaded from environment variable")
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('#') or '=' not in line:
+                        continue
+                    key, val = line.split('=', 1)
+                    val = val.strip().strip('"').strip("'")
+                    if key == 'BING_SEARCH_KEY' and val:
+                        _BING_SEARCH_KEY = val
+                    elif key == 'GOOGLE_API_KEY' and val:
+                        _GOOGLE_API_KEY = val
+                    elif key == 'GOOGLE_CX' and val:
+                        _GOOGLE_CX = val
+                    elif key == 'TAVILY_API_KEY' and val:
+                        _TAVILY_API_KEY = val
+        except Exception:
+            pass
 
-_load_bing_key()
+    # Also check environment variables
+    _BING_SEARCH_KEY = _BING_SEARCH_KEY or os.environ.get('BING_SEARCH_KEY')
+    _GOOGLE_API_KEY = _GOOGLE_API_KEY or os.environ.get('GOOGLE_API_KEY')
+    _GOOGLE_CX = _GOOGLE_CX or os.environ.get('GOOGLE_CX')
+    _TAVILY_API_KEY = _TAVILY_API_KEY or os.environ.get('TAVILY_API_KEY')
+
+    # Set provider preference: Bing first, then Google, then Tavily
+    if _BING_SEARCH_KEY:
+        _WEB_SEARCH_PROVIDER = "bing"
+        print(f"  Web Search: Bing Search API configured")
+    elif _GOOGLE_API_KEY and _GOOGLE_CX:
+        _WEB_SEARCH_PROVIDER = "google"
+        print(f"  Web Search: Google Custom Search configured")
+    elif _TAVILY_API_KEY:
+        _WEB_SEARCH_PROVIDER = "tavily"
+        print(f"  Web Search: Tavily Search configured")
+    else:
+        print(f"  Web Search: No API key configured (demo mode will use hardcoded results)")
 
 
-def _bing_web_search(query, count=5):
-    """Search the web via Bing Search API v7.
-    Returns list of {title, snippet, url} dicts, or error string.
+_load_search_keys()
+
+
+def _web_search(query, count=5):
+    """Search the web via configured provider (Bing, Google, or Tavily).
+    Returns dict with {query, results: [{title, snippet, url}], count, provider} or {error}.
     The query is scrubbed of PII/PHI before sending."""
-    if not _BING_SEARCH_KEY:
-        return {"error": "Bing Search API key not configured. Add BING_SEARCH_KEY to .bing-search.env"}
+    if not _WEB_SEARCH_PROVIDER:
+        return {"error": "No web search API configured. Add keys to .bing-search.env"}
 
-    # Scrub PII/PHI from the query before it leaves the device
     scrubbed_query = _scrub_search_query(query)
 
     try:
         import requests as _req
-        headers = {"Ocp-Apim-Subscription-Key": _BING_SEARCH_KEY}
-        params = {
-            "q": scrubbed_query,
-            "count": count,
-            "mkt": "en-US",
-            "responseFilter": "Webpages",
-            "safeSearch": "Moderate",
-        }
-        resp = _req.get(_BING_SEARCH_ENDPOINT, headers=headers, params=params, timeout=8)
-        resp.raise_for_status()
-        data = resp.json()
 
-        results = []
-        for page in data.get("webPages", {}).get("value", [])[:count]:
-            results.append({
-                "title": page.get("name", ""),
-                "snippet": page.get("snippet", "")[:250],
-                "url": page.get("url", ""),
-            })
+        if _WEB_SEARCH_PROVIDER == "bing":
+            resp = _req.get(_BING_SEARCH_ENDPOINT,
+                headers={"Ocp-Apim-Subscription-Key": _BING_SEARCH_KEY},
+                params={"q": scrubbed_query, "count": count, "mkt": "en-US",
+                        "responseFilter": "Webpages", "safeSearch": "Moderate"},
+                timeout=8)
+            resp.raise_for_status()
+            data = resp.json()
+            results = []
+            for page in data.get("webPages", {}).get("value", [])[:count]:
+                results.append({
+                    "title": page.get("name", ""),
+                    "snippet": page.get("snippet", "")[:250],
+                    "url": page.get("url", ""),
+                })
+
+        elif _WEB_SEARCH_PROVIDER == "google":
+            resp = _req.get(_GOOGLE_SEARCH_ENDPOINT,
+                params={"key": _GOOGLE_API_KEY, "cx": _GOOGLE_CX,
+                        "q": scrubbed_query, "num": min(count, 10)},
+                timeout=8)
+            resp.raise_for_status()
+            data = resp.json()
+            results = []
+            for item in data.get("items", [])[:count]:
+                results.append({
+                    "title": item.get("title", ""),
+                    "snippet": item.get("snippet", "")[:250],
+                    "url": item.get("link", ""),
+                })
+
+        elif _WEB_SEARCH_PROVIDER == "tavily":
+            resp = _req.post(_TAVILY_ENDPOINT,
+                json={"api_key": _TAVILY_API_KEY, "query": scrubbed_query,
+                      "max_results": count, "include_answer": False},
+                timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            results = []
+            for item in data.get("results", [])[:count]:
+                results.append({
+                    "title": item.get("title", ""),
+                    "snippet": item.get("content", "")[:250],
+                    "url": item.get("url", ""),
+                })
 
         return {
             "query": scrubbed_query,
             "results": results,
             "count": len(results),
+            "provider": _WEB_SEARCH_PROVIDER,
         }
     except Exception as e:
-        return {"error": f"Bing Search failed: {type(e).__name__}: {e}"}
+        return {"error": f"Web search failed ({_WEB_SEARCH_PROVIDER}): {type(e).__name__}: {e}"}
 
 
 def _scrub_search_query(query):
@@ -2075,21 +2134,21 @@ def execute_tool(name, arguments):
         query = (arguments.get("query") or "").strip()
         if not query:
             return {"success": False, "error": "No search query provided"}
-        # In demo mode without a Bing key, return hardcoded results
-        if not _BING_SEARCH_KEY:
+        # No search provider configured — use demo results or error
+        if not _WEB_SEARCH_PROVIDER:
             if DEMO_MODE:
                 demo_results = _get_demo_search_results(query)
-                _formatted = f"Web Search Results for: {demo_results['query']}\n(Source: Demo mode — configure Bing API key for live search)\n\n"
+                _formatted = f"Web Search Results for: {demo_results['query']}\n(Source: Demo mode)\n\n"
                 for i, r in enumerate(demo_results.get("results", []), 1):
                     _formatted += f"{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n\n"
                 return {"success": True, "output": _formatted}
-            return {"success": False, "error": "Bing Search API key not configured. Add BING_SEARCH_KEY to .bing-search.env"}
-        # Live search
-        search_result = _bing_web_search(query, count=5)
+            return {"success": False, "error": "No web search API configured. Add keys to .bing-search.env"}
+        # Live search (Bing or Google, auto-detected)
+        search_result = _web_search(query, count=5)
         if "error" in search_result:
             return {"success": False, "error": search_result["error"]}
-        # Format results for the model to synthesize
-        _formatted = f"Web Search Results for: {search_result['query']}\n({search_result['count']} results from Bing)\n\n"
+        provider = search_result.get("provider", "web").capitalize()
+        _formatted = f"Web Search Results for: {search_result['query']}\n({search_result['count']} results via {provider})\n\n"
         for i, r in enumerate(search_result.get("results", []), 1):
             _formatted += f"{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n\n"
         return {"success": True, "output": _formatted[:3000]}  # Cap at 3000 chars for context budget
