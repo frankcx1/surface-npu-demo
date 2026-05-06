@@ -2138,20 +2138,21 @@ def execute_tool(name, arguments):
         if not _WEB_SEARCH_PROVIDER:
             if DEMO_MODE:
                 demo_results = _get_demo_search_results(query)
-                _formatted = f"Web Search Results for: {demo_results['query']}\n(Source: Demo mode)\n\n"
-                for i, r in enumerate(demo_results.get("results", []), 1):
-                    _formatted += f"{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n\n"
-                return {"success": True, "output": _formatted}
+                _formatted = f"Search: {demo_results['query']}\n\n"
+                for i, r in enumerate(demo_results.get("results", [])[:3], 1):
+                    _formatted += f"{i}. {r['title'][:60]}\n   {r['snippet'][:120]}\n   {r['url']}\n"
+                return {"success": True, "output": _formatted[:800]}
             return {"success": False, "error": "No web search API configured. Add keys to .bing-search.env"}
-        # Live search (Bing or Google, auto-detected)
-        search_result = _web_search(query, count=5)
+        # Live search — limit to 3 results and aggressively compress for NPU 1024-token prompt limit
+        search_result = _web_search(query, count=3)
         if "error" in search_result:
             return {"success": False, "error": search_result["error"]}
-        provider = search_result.get("provider", "web").capitalize()
-        _formatted = f"Web Search Results for: {search_result['query']}\n({search_result['count']} results via {provider})\n\n"
-        for i, r in enumerate(search_result.get("results", []), 1):
-            _formatted += f"{i}. {r['title']}\n   {r['snippet']}\n   Source: {r['url']}\n\n"
-        return {"success": True, "output": _formatted[:3000]}  # Cap at 3000 chars for context budget
+        _formatted = f"Search: {search_result['query']}\n\n"
+        for i, r in enumerate(search_result.get("results", [])[:3], 1):
+            _title = r['title'][:60]
+            _snippet = r['snippet'][:120]
+            _formatted += f"{i}. {_title}\n   {_snippet}\n   {r['url']}\n"
+        return {"success": True, "output": _formatted[:800]}  # Hard cap for NPU context budget
 
     elif name == "my_calendar_today":
         try:
@@ -13066,10 +13067,66 @@ def chat():
         'Use the prep_next_client', 'Use the my_calendar', 'Use the d365_',
         'run a command', 'get-childitem', 'get-content',
         'Show me my calendar', 'What meetings do I have',
+        # Web search triggers
+        'search the web', 'search for', 'look up', 'look online',
+        'web search', 'google', 'bing', 'find online', 'search online',
+        'what are the current', 'what are the latest', 'latest guidelines',
+        'current regulations', 'current rates',
     ]
     _needs_tools = any(kw in message for kw in _tool_keywords)
 
+    # Detect explicit web search intent — handle directly instead of relying on model
+    _search_triggers = ['search the web', 'search for', 'look up', 'look online',
+                        'web search', 'find online', 'search online']
+    _is_search_request = any(t in message.lower() for t in _search_triggers)
+
     def generate():
+        # Web search path: directly call search API, then ask model to summarize
+        if _is_search_request and (_WEB_SEARCH_PROVIDER or DEMO_MODE):
+            yield json.dumps({"type": "thinking"}) + "\n"
+            start = _time.time()
+            try:
+                # Extract the search query from the user's message
+                _query = message
+                for prefix in _search_triggers:
+                    if prefix in _query.lower():
+                        idx = _query.lower().index(prefix) + len(prefix)
+                        _query = _query[idx:].strip().strip('"').strip("'")
+                        break
+                if not _query or len(_query) < 3:
+                    _query = message  # fallback to full message
+
+                # Execute the search
+                search_result = execute_tool("web_search", {"query": _query})
+                search_output = search_result.get("output", search_result.get("error", "No results"))
+
+                yield json.dumps({"type": "think_done", "time": round(_time.time() - start, 1)}) + "\n"
+
+                # Ask model to summarize the results
+                _call_start = _time.time()
+                summary_response = foundry_chat(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": "Summarize concisely. Plain text only."},
+                        {"role": "user", "content": (
+                            f"User asked: {message[:100]}\n\n"
+                            f"{search_output}\n\n"
+                            "Summarize these search results in 2-3 sentences. "
+                            "Include the key facts and mention the source."
+                        )},
+                    ],
+                    max_tokens=256,
+                    temperature=0.3,
+                )
+                _track_model_call(summary_response, _time.time() - _call_start)
+                final_text = (summary_response.choices[0].message.content or "").strip()
+                total = round(_time.time() - start, 1)
+                yield json.dumps({"type": "response", "text": final_text, "time": total}) + "\n"
+                yield json.dumps({"type": "done", "time": total}) + "\n"
+            except Exception as e:
+                yield json.dumps({"type": "error", "message": str(e)}) + "\n"
+            return
+
         # Free-text path: use Marcus persona prompt (warmer tone, conversation history)
         if _MARCUS_AVAILABLE and not _needs_tools:
             yield json.dumps({"type": "thinking"}) + "\n"
@@ -13135,16 +13192,23 @@ def chat():
                 # Step 4: Feed result back to model for a spoken summary
                 yield json.dumps({"type": "thinking"}) + "\n"
                 tool_output = result.get("output", result.get("error", "No output"))
-                # Truncate large outputs so model stays focused
-                if len(tool_output) > 1500:
-                    tool_output = tool_output[:1500] + "\n...(truncated)"
+                # Truncate outputs — web search needs aggressive compression for NPU context
+                _max_output = 600 if tool_name == "web_search" else 1500
+                if len(tool_output) > _max_output:
+                    tool_output = tool_output[:_max_output] + "\n...(truncated)"
                 # Customize summary instruction based on tool type
                 _summary_instruction = (
                     "Respond to the user in plain text based on this result. "
                     "Be concise. Do NOT use [TOOL_CALL] markers. "
                     "Use ONLY the information above — do not invent names or facts."
                 )
-                if tool_name == "prep_next_client":
+                if tool_name == "web_search":
+                    _summary_instruction = (
+                        "Summarize these search results in 2-3 sentences. "
+                        "Include the key facts and mention the source. "
+                        "Be concise. Do NOT use [TOOL_CALL] markers."
+                    )
+                elif tool_name == "prep_next_client":
                     _summary_instruction = (
                         "Format this client prep into THREE clearly separated sections. Use this EXACT structure:\n\n"
                         "MEETING\n"
@@ -13157,15 +13221,26 @@ def chat():
                         "Keep all talk tracks word for word. Do NOT combine sections. Do NOT merge into one paragraph.\n\n"
                         "Use ONLY information from the tool result. Do NOT invent facts. Do NOT use [TOOL_CALL] markers."
                     )
-                followup_msgs = [
-                    {"role": "system", "content": "You are a helpful assistant. Respond in plain text only. No tool calls."},
-                    {"role": "user", "content": message},
-                    {"role": "assistant", "content": model_output},
-                    {"role": "user", "content": (
-                        f"Tool result:\n{tool_output}\n\n"
-                        + _summary_instruction
-                    )},
-                ]
+                # For web search, use a minimal message set to stay within NPU prompt limit
+                if tool_name == "web_search":
+                    followup_msgs = [
+                        {"role": "system", "content": "Summarize concisely. Plain text only."},
+                        {"role": "user", "content": (
+                            f"User asked: {message[:100]}\n\n"
+                            f"{tool_output}\n\n"
+                            + _summary_instruction
+                        )},
+                    ]
+                else:
+                    followup_msgs = [
+                        {"role": "system", "content": "You are a helpful assistant. Respond in plain text only. No tool calls."},
+                        {"role": "user", "content": message},
+                        {"role": "assistant", "content": model_output},
+                        {"role": "user", "content": (
+                            f"Tool result:\n{tool_output}\n\n"
+                            + _summary_instruction
+                        )},
+                    ]
                 try:
                     _call_start2 = _time.time()
                     followup = foundry_chat(
