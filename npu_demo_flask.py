@@ -1305,22 +1305,63 @@ def _sig_unmanaged_chronic(customer_data):
 
 
 def _marcus_chat(user_message, history=None):
-    """Chat via Marcus Reed persona on stock model + system prompt. Returns (response_text, elapsed_seconds)."""
+    """Chat via Marcus Reed persona on stock model + system prompt.
+    Always enriches with web search results when a search provider is configured.
+    Marcus stays in character — search results are context, not personality.
+    Returns (response_text, elapsed_seconds, search_performed)."""
     if not _MARCUS_AVAILABLE:
-        return "Marcus Reed persona is not configured. Check configs/personas/marcus_reed.yaml.", 0.0
+        return "Marcus Reed persona is not configured. Check configs/personas/marcus_reed.yaml.", 0.0, False
 
+    # --- Web search enrichment (runs for every message) ---
+    web_context = ""
+    search_performed = False
+    if _WEB_SEARCH_PROVIDER or DEMO_MODE:
+        try:
+            search_result = execute_tool("web_search", {"query": user_message})
+            if search_result.get("success"):
+                web_context = search_result["output"]
+                search_performed = True
+        except Exception:
+            pass  # search failure is silent — Marcus answers from knowledge
+    elif DEMO_MODE:
+        try:
+            demo_results = _get_demo_search_results(user_message)
+            _fmt = f"Search: {demo_results['query']}\n\n"
+            for i, r in enumerate(demo_results.get("results", [])[:3], 1):
+                _fmt += f"{i}. {r['title'][:60]}\n   {r['snippet'][:120]}\n"
+            web_context = _fmt[:600]
+            search_performed = True
+        except Exception:
+            pass
+
+    # --- Build messages ---
     system = _MARCUS_SYSTEM_PROMPT or "You are Marcus Reed, a Senior Wealth Advisor at Zava Financial."
-    messages = [{"role": "system", "content": system}]
+
+    # Enrich the user message with web context (if available)
+    enriched_message = user_message
+    if web_context:
+        enriched_message = (
+            f"{user_message}\n\n"
+            f"[Current web results for reference — use if relevant, ignore if not:]\n"
+            f"{web_context}"
+        )
+
+    # Keep messages compact for NPU context budget
+    # System prompt (~500 chars) + last 4 history turns + enriched message
+    messages = [{"role": "system", "content": system[:800]}]
     if history:
-        for msg in history:
-            messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
-    messages.append({"role": "user", "content": user_message})
+        # Only keep last 4 turns to save context
+        recent = history[-4:] if len(history) > 4 else history
+        for msg in recent:
+            content = msg.get("content", "")[:200]  # truncate old messages
+            messages.append({"role": msg.get("role", "user"), "content": content})
+    messages.append({"role": "user", "content": enriched_message[:1200]})
 
     start = _time.time()
     response = foundry_chat(
         model=DEFAULT_MODEL,
         messages=messages,
-        max_tokens=600,
+        max_tokens=512,
         temperature=0.3,
     )
     elapsed = _time.time() - start
@@ -1333,7 +1374,7 @@ def _marcus_chat(user_message, history=None):
     if not is_safe:
         result = filtered
 
-    return result, elapsed
+    return result, elapsed, search_performed
 
 
 # --- Agent infrastructure ---
@@ -13075,69 +13116,20 @@ def chat():
     ]
     _needs_tools = any(kw in message for kw in _tool_keywords)
 
-    # Detect explicit web search intent — handle directly instead of relying on model
-    _search_triggers = ['search the web', 'search for', 'look up', 'look online',
-                        'web search', 'find online', 'search online']
-    _is_search_request = any(t in message.lower() for t in _search_triggers)
-
     def generate():
-        # Web search path: directly call search API, then ask model to summarize
-        if _is_search_request and (_WEB_SEARCH_PROVIDER or DEMO_MODE):
-            yield json.dumps({"type": "thinking"}) + "\n"
-            start = _time.time()
-            try:
-                # Extract the search query from the user's message
-                _query = message
-                for prefix in _search_triggers:
-                    if prefix in _query.lower():
-                        idx = _query.lower().index(prefix) + len(prefix)
-                        _query = _query[idx:].strip().strip('"').strip("'")
-                        break
-                if not _query or len(_query) < 3:
-                    _query = message  # fallback to full message
-
-                # Execute the search
-                search_result = execute_tool("web_search", {"query": _query})
-                search_output = search_result.get("output", search_result.get("error", "No results"))
-
-                yield json.dumps({"type": "think_done", "time": round(_time.time() - start, 1)}) + "\n"
-
-                # Ask model to summarize the results
-                _call_start = _time.time()
-                summary_response = foundry_chat(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": "Summarize concisely. Plain text only."},
-                        {"role": "user", "content": (
-                            f"User asked: {message[:100]}\n\n"
-                            f"{search_output}\n\n"
-                            "Summarize these search results in 2-3 sentences. "
-                            "Include the key facts and mention the source."
-                        )},
-                    ],
-                    max_tokens=256,
-                    temperature=0.3,
-                )
-                _track_model_call(summary_response, _time.time() - _call_start)
-                final_text = (summary_response.choices[0].message.content or "").strip()
-                total = round(_time.time() - start, 1)
-                yield json.dumps({"type": "response", "text": final_text, "time": total}) + "\n"
-                yield json.dumps({"type": "done", "time": total}) + "\n"
-            except Exception as e:
-                yield json.dumps({"type": "error", "message": str(e)}) + "\n"
-            return
-
-        # Free-text path: use Marcus persona prompt (warmer tone, conversation history)
+        # Free-text path: Marcus persona + automatic web search enrichment
+        # Every conversational message gets a web search in the background.
+        # Marcus stays in character — search results are just context he can reference.
         if _MARCUS_AVAILABLE and not _needs_tools:
             yield json.dumps({"type": "thinking"}) + "\n"
             start = _time.time()
             try:
                 history = data.get("history", [])
-                marcus_response, elapsed = _marcus_chat(message, history)
+                marcus_response, elapsed, searched = _marcus_chat(message, history)
                 think_time = round(elapsed, 1)
-                yield json.dumps({"type": "think_done", "time": think_time}) + "\n"
+                yield json.dumps({"type": "think_done", "time": think_time, "web_search": searched}) + "\n"
                 total = round(_time.time() - start, 1)
-                yield json.dumps({"type": "response", "text": marcus_response, "time": total}) + "\n"
+                yield json.dumps({"type": "response", "text": marcus_response, "time": total, "web_search": searched}) + "\n"
                 yield json.dumps({"type": "done"}) + "\n"
             except Exception as e:
                 print(f"[Marcus] Error: {e}", flush=True)
