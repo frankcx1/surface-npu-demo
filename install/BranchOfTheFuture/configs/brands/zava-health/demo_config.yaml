@@ -1,0 +1,91 @@
+schema_version: 1
+extends: industries/healthcare/verticals/provider.yaml
+brand_id: zava-health
+display_name: "Zava Health"
+brand_status: active
+
+brand:
+  primary: "#0F4C5C"
+  primary_end: "#1A6B7F"
+  accent: "#2C8C7A"
+  accent_rgb: "44,140,122"
+  hover: "#3FA391"
+  theme: "light"
+  logo: "zava-health-logo.png"
+  company_name: "Zava Health"
+  tagline: "Care, on the device."
+
+advisor:
+  name: "Dr. Maya Patel"
+  title: "Primary Care Physician"
+  company: "Zava Health"
+  phone: "(555) 010-2200"
+  email: "maya.patel@zavahealth.example"
+  organization_unit: "Riverside Family Practice"
+
+customer:
+  name: "Jordan Lee"
+  full_name: "Jordan A. Lee"
+  identifier: "MRN-104782"
+
+concierge:
+  demo_arrivals:
+    - identifier: "MRN-104782"
+      name: "Jordan Lee"
+      tier: scheduled
+      context: "Annual checkup, last visit 14 months ago, A1C trending up"
+    - identifier: "MRN-208441"
+      name: "Priya Sharma"
+      tier: vip
+      context: "Post-surgical follow-up, 3 weeks out from knee replacement"
+    - identifier: "MRN-331095"
+      name: "David Okafor"
+      tier: walk_in
+      context: "New patient, transferred records from out of state"
+
+personas:
+  - name: "Dr. Patel"
+    role: "Physician"
+    tabs: ["day", "chat", "live", "field"]
+  - name: "Sam"
+    role: "Nurse Practitioner"
+    tabs: ["id", "auditor"]
+
+branches:
+  - name: "Riverside Family Practice"
+    city: "San Francisco"
+    state: "CA"
+
+poc:
+  footer: "This application is a proof-of-concept demonstration of on-device AI for healthcare on Copilot+ PCs. Individual features are architectural demonstrations and are not validated for clinical use."
+  auditor: "PROOF OF CONCEPT -- This is a demonstration of on-device PHI detection and compliance pre-screening. It is not a validated HIPAA compliance tool and should not be used for actual regulatory decisions."
+  id: "PROOF OF CONCEPT -- This is a demonstration of on-device patient intake. It is not a validated clinical system and should not be used for actual patient identification or insurance verification."
+
+economics:
+  cost_per_1k_tokens: 0.01
+  carbon_per_1k_tokens: 0.25
+  device_cost: 1599
+
+demo_script:
+  - {delay: 0,    speaker: "Patient",    text: "Hi Dr. Patel, I'm here for my annual checkup."}
+  - {delay: 3500, speaker: "Clinician",  text: "Hi Jordan, good to see you again. How have you been since your last visit?"}
+  - {delay: 3500, speaker: "Patient",    text: "Pretty good overall. I've been trying to eat better and walk more."}
+  - {delay: 3000, speaker: "Clinician",  text: "That's great to hear. Any new concerns or symptoms since we last met?"}
+  - {delay: 3500, speaker: "Patient",    text: "My energy has been low lately. I'm sleeping enough but still feel tired."}
+  - {delay: 4000, speaker: "Patient",    text: "Also, I noticed I'm getting up at night to use the bathroom more than usual."}
+  - {delay: 3000, speaker: "Clinician",  text: "That's helpful to know. Both of those can be worth checking into. How long has this been going on?"}
+  - {delay: 3500, speaker: "Patient",    text: "Maybe two or three months? I wasn't sure if it was worth mentioning."}
+  - {delay: 3000, speaker: "Patient",    text: "My A1C was borderline last time. Should I be worried?"}
+  - {delay: 3500, speaker: "Clinician",  text: "It's smart to bring it up. We'll check your A1C again today and compare to last year."}
+  - {delay: 4000, speaker: "Patient",    text: "My mom was just diagnosed with type 2 diabetes. That kind of got me thinking about it."}
+  - {delay: 3000, speaker: "Patient",    text: "Is there anything I should be doing differently right now?"}
+  - {delay: 3500, speaker: "Clinician",  text: "Family history is definitely a factor. We'll review your labs and talk about a plan that works for you."}
+  - {delay: 3500, speaker: "Patient",    text: "I'm also due for some screenings, right? I think I got a letter about that."}
+  - {delay: 4000, speaker: "Patient",    text: "And I want to make sure I'm up to date on vaccinations before my daughter starts college."}
+  - {delay: 3000, speaker: "Clinician",  text: "Yes, we'll go through the preventive care checklist today. Good timing."}
+  - {delay: 3500, speaker: "Patient",    text: "OK, that sounds good. I want to be proactive about all of this."}
+  - {delay: 3000, speaker: "Patient",    text: "Can we also talk about whether I should see a nutritionist? My insurance might cover it."}
+  - {delay: 3500, speaker: "Clinician",  text: "Absolutely. I'll put in a referral today and we'll check your coverage. Let's start with vitals."}
+
+# Vocabulary, compliance, integrations, tabs, prompts inherited from
+# healthcare/provider -> healthcare industry

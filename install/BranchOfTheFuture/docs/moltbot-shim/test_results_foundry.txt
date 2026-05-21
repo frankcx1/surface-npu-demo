@@ -1,0 +1,29 @@
+============================================================
+Foundry Local Direct Path Test
+============================================================
+
+[1] Importing foundry_local SDK...
+    OK - foundry_local imported
+
+[2] Checking available models...
+    Could not list catalog: cannot import name 'FoundryClient' from 'foundry_local' (C:\Python314\Lib\site-packages\foundry_local\__init__.py)
+    (Will try direct model load instead)
+
+[3] Attempting to start FoundryLocalManager with 'phi-silica'...
+
+    Trying alias: 'phi-silica'...
+    FAIL - Model phi-silica not found in the catalog.
+
+    Trying alias: 'phi-4-mini'...
+    OK - Manager started with 'phi-4-mini'
+    Endpoint: http://127.0.0.1:51422/v1
+
+[4] Making test chat call via OpenAI SDK...
+    Model ID: phi-4-mini-instruct-openvino-npu:2
+    Response: Humans first landed on the moon during NASA's Apollo 11 mission on July 20, 1969.
+
+    SUCCESS - Direct path works!
+
+============================================================
+Test complete.
+============================================================

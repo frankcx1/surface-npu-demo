@@ -1,0 +1,107 @@
+# demo_config.yaml - Brand identity, personas, and UI configuration
+# Change this file to rebrand the demo for a different customer/industry.
+# The app loads this at startup. If missing, falls back to hardcoded defaults.
+
+app_title: "Branch of the Future"
+app_subtitle: "Powered by Surface + On-Device AI"
+
+# Brand colors and theme
+brand:
+  primary: "#ffffff"          # sidebar background start
+  primary_end: "#f8f8f8"     # sidebar background end
+  accent: "#f18f12"          # active states, links, highlights (Flagstar orange)
+  accent_rgb: "241,143,18"   # RGB for rgba() usage
+  hover: "#f6d107"           # hover accent (Flagstar yellow)
+  theme: "light"             # "light" or "dark"
+  logo: "flagstar-logo-official.png"
+  company_name: "Flagstar Financial"
+
+# Advisor identity (used in meeting reports, email signatures, system prompts)
+advisor:
+  name: "Alan Thornbury"
+  title: "Vice President & Senior Relationship Manager"
+  company: "Flagstar Bank"
+  phone: "(248) 312-5500"
+
+# Sidebar tab definitions
+# Icons: inline SVGs (dark stroke + gold accent for Flagstar style)
+tabs:
+  chat:
+    name: "Advisor Assistant"
+    sub: "Knowledge & Tools"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2" fill="#f6d107" stroke="none"/></svg>'
+  day:
+    name: "Morning Briefing"
+    sub: "Daily Prep"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="#f6d107" stroke="none"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>'
+  auditor:
+    name: "PII Guard"
+    sub: "Compliance Check"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><path d="M12 2L4 5v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V5L12 2z"/><path d="M9 12l2 2 4-4" stroke="#f6d107" stroke-width="2"/></svg>'
+  id:
+    name: "ID & Check Verify"
+    sub: "Scan & Deposit"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="11" r="2.5" fill="#f6d107" stroke="none"/><path d="M15 9h4M15 12h3M15 15h2M5 17c0-2 1.5-3 4-3s4 1 4 3"/></svg>'
+  live:
+    name: "Live Assist"
+    sub: "Client Meeting AI"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><circle cx="12" cy="8" r="1.5" fill="#f6d107" stroke="none"/></svg>'
+  field:
+    name: "Meeting Notes"
+    sub: "Post-Meeting Workflow"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/><rect x="8" y="9" width="3" height="2" rx="0.5" fill="#f6d107" stroke="none"/></svg>'
+
+# Persona switcher (set to null to hide the switcher)
+personas:
+  - name: "Frank"
+    role: "Branch Manager"
+    tabs: ["auditor", "id"]
+  - name: "Alan"
+    role: "Relationship Manager"
+    tabs: ["day", "chat", "live", "field"]
+
+# Customer identity (for demo presets and D365 lookups)
+customer:
+  name: "Jackie Rodriguez"
+  full_name: "Jackie Marie Rodriguez"
+  d365_contact_id: "5cdc2c3f-ad29-f111-8342-002248357e0e"
+
+# Branch locations (for kiosk and demo scenarios)
+branches:
+  - name: "320 Park Avenue"
+    city: "New York"
+    state: "NY"
+
+# POC disclaimer text
+poc:
+  footer: "This application is a proof-of-concept demonstration of on-device AI for branch banking on Copilot+ PCs. Individual features are architectural demonstrations and are not validated for production use."
+  auditor: "PROOF OF CONCEPT -- This is a demonstration of on-device PII detection and compliance pre-screening. It is not a validated compliance tool and should not be used for actual regulatory decisions."
+  id: "PROOF OF CONCEPT -- This is a demonstration of on-device document verification. It is not a validated identity verification system and should not be used for actual identity verification or access control."
+
+# Token economics (for Trust Receipt and Scale Calculator)
+economics:
+  cost_per_1k_tokens: 0.01       # USD per 1,000 tokens (cloud equivalent)
+  carbon_per_1k_tokens: 0.25     # grams CO2 per 1,000 tokens (cloud equivalent)
+  device_cost: 1599              # USD (Surface Pro list price, for ROI calculation)
+
+# Live Assist demo script (simulated two-speaker conversation)
+demo_script:
+  - {delay: 0,    speaker: "Customer", text: "Hi, I'm Jackie. I called earlier about opening a new account."}
+  - {delay: 3500, speaker: "Advisor",  text: "Welcome, Jackie! I'd be happy to help you get set up. What brings you in today?"}
+  - {delay: 3500, speaker: "Customer", text: "I just moved here from out of state and I need to set up checking and savings."}
+  - {delay: 3000, speaker: "Advisor",  text: "Great, we can definitely get that started. Is it just for you, or a joint account?"}
+  - {delay: 3500, speaker: "Customer", text: "Just me for now. I also have two kids, Maya is eight and Daniel is fifteen."}
+  - {delay: 4000, speaker: "Customer", text: "My husband and I have been talking about saving for their college."}
+  - {delay: 3000, speaker: "Advisor",  text: "That's smart to start planning early. Have you looked into any education savings plans?"}
+  - {delay: 3500, speaker: "Customer", text: "Someone mentioned a 529 plan but I don't really understand how it works."}
+  - {delay: 3000, speaker: "Customer", text: "Is there a limit on how much we can put in each year?"}
+  - {delay: 3500, speaker: "Advisor",  text: "A 529 is a tax-advantaged savings plan. The annual gift tax exclusion is $18,000 per beneficiary."}
+  - {delay: 4000, speaker: "Customer", text: "We're also thinking about retirement. I have an old 401k from my previous job that I never rolled over."}
+  - {delay: 3000, speaker: "Customer", text: "I'm forty-five, so I feel like I'm behind on retirement planning."}
+  - {delay: 3500, speaker: "Advisor",  text: "You're not behind at all. Let's look at your options. Do you know the balance on that 401k?"}
+  - {delay: 3500, speaker: "Customer", text: "What would you recommend, a Roth IRA or a traditional IRA for someone my age?"}
+  - {delay: 4000, speaker: "Customer", text: "And honestly, the fees at my last bank were ridiculous. That's part of why I'm switching."}
+  - {delay: 3000, speaker: "Advisor",  text: "I hear that a lot. Our checking accounts have no monthly fees with direct deposit."}
+  - {delay: 3500, speaker: "Customer", text: "OK that sounds reasonable. Let's go ahead and get the checking set up today."}
+  - {delay: 3000, speaker: "Customer", text: "And I'd like to schedule a follow-up to go deeper on the college savings and retirement options."}
+  - {delay: 3500, speaker: "Advisor",  text: "Absolutely. I'll get the checking started and we can book a follow-up for later this week."}

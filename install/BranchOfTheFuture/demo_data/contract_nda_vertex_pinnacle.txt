@@ -1,0 +1,79 @@
+MUTUAL NON-DISCLOSURE AGREEMENT
+
+Effective Date: January 15, 2026
+Agreement Number: NDA-2026-VD-PS-0847
+
+BETWEEN:
+
+Vertex Dynamics, Inc.
+1200 Innovation Drive, Suite 400
+San Jose, CA 95134
+Contact: James Morrison, VP Corporate Development
+Email: j.morrison@vertexdyn.com
+Phone: (415) 555-0142
+
+AND:
+
+Pinnacle Solutions Group, LLC
+8900 Enterprise Boulevard
+Austin, TX 78759
+Contact: Sarah Chen, General Counsel
+
+SECTION 1. DEFINITION OF CONFIDENTIAL INFORMATION
+
+1.1 "Confidential Information" means any and all non-public, proprietary, or confidential information disclosed by either party to the other, whether orally, in writing, electronically, or by inspection of tangible objects.
+
+SECTION 2. OBLIGATIONS OF RECEIVING PARTY
+
+2.1 The receiving party shall hold all Confidential Information in strict confidence and shall not disclose such information to any third party without the prior written consent of the disclosing party.
+
+SECTION 3. TERM AND DURATION
+
+3.1 This Agreement shall remain in effect for a period of two (2) years from the Effective Date.
+
+3.2 The obligations of confidentiality shall survive termination for a period of five (5) years.
+
+SECTION 4. INDEMNIFICATION AND LIABILITY
+
+4.1 Each party shall indemnify and hold harmless the other party from claims arising from a breach of this Agreement.
+
+4.2 NOTWITHSTANDING ANY OTHER PROVISION, THE DISCLOSING PARTY SHALL BE ENTITLED TO FULL INDEMNIFICATION FOR ALL DAMAGES, INCLUDING CONSEQUENTIAL, INCIDENTAL, INDIRECT, SPECIAL, AND PUNITIVE DAMAGES, ARISING FROM ANY BREACH BY THE RECEIVING PARTY. THIS PROVISION SHALL NOT BE SUBJECT TO ANY CAP OR LIMITATION.
+
+SECTION 5. RETURN OF MATERIALS
+
+5.1 Upon termination, the receiving party shall return or destroy all Confidential Information within thirty (30) days.
+
+SECTION 6. REMEDIES
+
+6.1 The non-breaching party shall be entitled to seek injunctive relief in addition to any other remedies.
+
+SECTION 7. INTELLECTUAL PROPERTY
+
+7.1 ALL WORK PRODUCT, INVENTIONS, AND INNOVATIONS, WHETHER CREATED PRIOR TO OR DURING THIS AGREEMENT, THAT ARE USED IN CONNECTION WITH THE PURPOSE, SHALL BE THE SOLE PROPERTY OF THE DISCLOSING PARTY.
+
+SECTION 8. NON-SOLICITATION
+
+8.1 Neither party shall solicit or hire employees of the other party for twelve (12) months following termination.
+
+SECTION 9. NON-COMPETITION
+
+9.1 The receiving party shall not engage in any competing business anywhere in the world for twenty-four (24) months following termination.
+
+SECTION 10. GOVERNING LAW
+
+10.1 This Agreement shall be governed by the laws of the State of Delaware.
+
+IN WITNESS WHEREOF:
+
+VERTEX DYNAMICS, INC.
+By: _________________________
+Name: James A. Morrison
+Title: VP Corporate Development
+SSN (for notarization): 478-93-3847
+Date: January 15, 2026
+
+PINNACLE SOLUTIONS GROUP, LLC
+By: _________________________
+Name: Sarah L. Chen
+Title: General Counsel
+Date: January 15, 2026

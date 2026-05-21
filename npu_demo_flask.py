@@ -825,6 +825,203 @@ DEMO_CONFIG = _YAML_CONFIG if _YAML_CONFIG else {
 if not _YAML_CONFIG:
     print("  Using hardcoded DEMO_CONFIG (no YAML)", flush=True)
 
+# --- Agent 365 Governance: Mock data layer ---
+# These loader functions return canned data matching Agent 365 Graph API schemas.
+# When the Agent 365 license arrives, swap these for real Graph API calls.
+
+def _governance_get_agent_registration():
+    """Agent registration record (mock; swap for Graph API later)."""
+    _brand = DEMO_CONFIG.get("brand_company", "Zava Financial")
+    _branch = DEMO_CONFIG.get("advisor_branch", "Financial District, San Francisco")
+    return {
+        "id": "branch-concierge-001",
+        "displayName": "Branch Concierge Agent",
+        "description": "On-device AI agent for branch banking VIP recognition and teller assistance",
+        "platform": "Microsoft Agent 365 SDK (Custom)",
+        "publisher": _brand,
+        "ownerUpn": f"jason.cto@{_brand.lower().replace(' ', '')}.com",
+        "status": "Active",
+        "deploymentStatus": "Deployed",
+        "entraAgentId": "3c9a17e2-8b4f-4d21-a6f3-7e2d8c5b1a09",
+        "blueprintId": "blueprint-branch-concierge-v1",
+        "blueprintVersion": "1.0.3",
+        "lastUpdated": "2026-05-10T08:30:00Z",
+        "permissions": [
+            "Calendar.Read.Shared",
+            "Dataverse.UserRead",
+            "User.Read.All",
+        ],
+        "certifications": ["Internal Banking Review v2", "Privacy Assessment Q1 2026"],
+        "tools": [
+            {"name": "Work IQ Calendar MCP", "status": "Approved"},
+            {"name": "Dataverse / D365 MCP", "status": "Approved"},
+            {"name": "Local Phi-4 Mini Inference", "status": "Approved"},
+            {"name": "Phi Silica Vision", "status": "Approved"},
+        ],
+        "branch": _branch,
+    }
+
+
+def _governance_get_activity_log():
+    """Activity timeline entries (mock; swap for Graph API later)."""
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    today = now.strftime("%Y-%m-%d")
+    yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    day2 = (now - timedelta(days=2)).strftime("%Y-%m-%d")
+    day3 = (now - timedelta(days=3)).strftime("%Y-%m-%d")
+
+    entries = [
+        # Today
+        {"id": "act-00047", "date": today, "time": "10:15", "action": "Generate VIP greeting brief",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Phi-4 Mini", "Calendar MCP", "Dataverse MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00046", "date": today, "time": "10:14", "action": "VIP arrival detected -- Jackie Rodriguez",
+         "user": "agent (autonomous)", "authFlow": "Agentic", "tools": ["Dataverse MCP", "Phi Silica Vision"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00045", "date": today, "time": "10:13", "action": "Calendar appointment lookup",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Calendar MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00044", "date": today, "time": "10:12", "action": "D365 customer profile lookup",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Dataverse MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00043", "date": today, "time": "10:10", "action": "Conditional Access policy evaluation",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Entra ID"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00042", "date": today, "time": "09:42", "action": "Morning briefing generated",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Phi-4 Mini", "Calendar MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        # Yesterday
+        {"id": "act-00041", "date": yesterday, "time": "15:30", "action": "Post-meeting dictation to CRM",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Phi-4 Mini", "Dataverse MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00040", "date": yesterday, "time": "14:15", "action": "Check deposit scan and verification",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Phi Silica Vision", "Dataverse MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00039", "date": yesterday, "time": "13:48", "action": "DLP policy applied -- PII redaction before escalation",
+         "user": "agent (autonomous)", "authFlow": "Agentic", "tools": ["PII Guard"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00038", "date": yesterday, "time": "13:45", "action": "Contract review -- NDA risk analysis",
+         "user": "marcus.manager", "authFlow": "OBO", "tools": ["Phi-4 Mini"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00037", "date": yesterday, "time": "11:20", "action": "ID verification -- photo ID scan",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Phi Silica Vision"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00036", "date": yesterday, "time": "10:30", "action": "Generate VIP greeting brief",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Phi-4 Mini", "Calendar MCP", "Dataverse MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00035", "date": yesterday, "time": "10:28", "action": "VIP arrival detected -- Thomas Henderson",
+         "user": "agent (autonomous)", "authFlow": "Agentic", "tools": ["Dataverse MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00034", "date": yesterday, "time": "09:15", "action": "Morning briefing generated",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Phi-4 Mini", "Calendar MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        # 2 days ago
+        {"id": "act-00033", "date": day2, "time": "16:10", "action": "Follow-up email drafted and polished",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Phi-4 Mini", "TextRewriter"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00032", "date": day2, "time": "14:50", "action": "Live Assist -- real-time meeting insights",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Phi-4 Mini"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00031", "date": day2, "time": "14:05", "action": "Cross-sell signal detected -- 529 Plan opportunity",
+         "user": "agent (autonomous)", "authFlow": "Agentic", "tools": ["Product Catalog", "Dataverse MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00030", "date": day2, "time": "11:00", "action": "Phi-4 Mini inference -- product recommendation",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Phi-4 Mini"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00029", "date": day2, "time": "09:05", "action": "Morning briefing generated",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Phi-4 Mini", "Calendar MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        # 3 days ago
+        {"id": "act-00028", "date": day3, "time": "15:40", "action": "Post-meeting dictation to CRM",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Phi-4 Mini", "Dataverse MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00027", "date": day3, "time": "13:22", "action": "Purview retention label applied",
+         "user": "agent (autonomous)", "authFlow": "Agentic", "tools": ["Purview"],
+         "result": "Success", "policyCompliance": "Compliant"},
+        {"id": "act-00026", "date": day3, "time": "10:18", "action": "D365 customer profile lookup",
+         "user": "sarah.teller", "authFlow": "OBO", "tools": ["Dataverse MCP"],
+         "result": "Success", "policyCompliance": "Compliant"},
+    ]
+    return entries
+
+
+def _governance_get_policy_status():
+    """Policy compliance summary (mock; swap for Graph API later)."""
+    return {
+        "conditionalAccess": {
+            "status": "Enforced",
+            "lastEvaluated": "10:10 AM today",
+            "device": "Compliant (Intune managed)",
+            "location": "Trusted -- branch network",
+        },
+        "dlp": {
+            "status": "Enforced",
+            "policiesApplied": 3,
+            "piiRedacted": True,
+            "dataEgress": "0 bytes (all local)",
+        },
+        "purview": {
+            "status": "Enforced",
+            "retentionDays": 365,
+            "auditLog": "All activities captured",
+            "labels": "Auto-applied to CRM entries",
+        },
+        "defender": {
+            "status": "Monitoring",
+            "alerts": 0,
+            "shadowAI": "None",
+            "threatScore": "Low",
+        },
+    }
+
+
+def _governance_get_metrics():
+    """Top-line governance metrics (mock; swap for Graph API later)."""
+    return {
+        "totalActivities30d": 47,
+        "totalDelta": "+12 vs prior period",
+        "successRate": "98.5%",
+        "successDetail": "1 warning, 0 failures",
+        "avgResponseTime": "1.2s",
+        "responseDetail": "NPU inference (on-device)",
+        "policyViolations": 0,
+        "violationDetail": "Clean for 47 consecutive",
+        "tokensProcessed": "14,200",
+        "tokensDetail": "100% local NPU -- zero cloud tokens",
+        "costDetail": "$35.50 saved vs Azure OpenAI",
+    }
+
+
+# Live activity log: populated by route handlers, read by /governance/activities
+_GOVERNANCE_LIVE_LOG = []
+_governance_log_counter = 0
+
+
+def _governance_log_activity(action, user="sarah.teller", auth_flow="OBO",
+                              tools=None, result="Success"):
+    """Append a live activity entry. Called from route handlers."""
+    global _governance_log_counter
+    from datetime import datetime
+    _governance_log_counter += 1
+    now = datetime.utcnow()
+    entry = {
+        "id": f"live-{_governance_log_counter:05d}",
+        "date": now.strftime("%Y-%m-%d"),
+        "time": now.strftime("%H:%M"),
+        "action": action,
+        "user": user,
+        "authFlow": auth_flow,
+        "tools": tools or [],
+        "result": result,
+        "policyCompliance": "Compliant",
+        "live": True,
+    }
+    _GOVERNANCE_LIVE_LOG.insert(0, entry)  # newest first
+
+
+# --- End Agent 365 Governance data layer ---
+
 # --- Industry Packs: Feature flag and resolved config ---
 # Check if the active config requests the industry packs loader.
 # CLI: python npu_demo_flask.py --industry-pack zava-health
@@ -924,7 +1121,7 @@ def detect_silicon():
         return "arm64"
     return "intel"
 
-SILICON = detect_silicon()
+SILICON = os.environ.get("BOTF_SILICON_OVERRIDE", "").lower() or detect_silicon()
 
 if SILICON == "qualcomm":
     CHIP_LABEL   = "Snapdragon X NPU"
@@ -950,32 +1147,70 @@ else:
     MODEL_ALIAS = "phi-4-mini"
     MODEL_LABEL = "Phi-4 Mini"
 
-# --- Model initialization via Foundry Local SDK (NPU → GPU → localhost:5272 fallback) ---
+# --- Model initialization via Foundry Local SDK (NPU -> GPU -> SDK-default) ---
 print(f"Starting Foundry Local runtime (model: {MODEL_ALIAS})...", flush=True)
 FOUNDRY_AVAILABLE = False
-try:
+MODEL_ID = None
+manager = None
+
+def _load_foundry(alias, device=None):
+    """Init FoundryLocalManager for alias, optionally pinned to a device. Returns (manager, model_id)."""
     from foundry_local import FoundryLocalManager
-    manager = FoundryLocalManager(MODEL_ALIAS)
-    MODEL_ID = manager.get_model_info(MODEL_ALIAS).id
-    client = OpenAI(base_url=manager.endpoint, api_key=manager.api_key)
-    DEFAULT_MODEL = MODEL_ID
-    FOUNDRY_AVAILABLE = True
-except Exception as _npu_err:
-    # NPU variant may fail on some devices (e.g. Lunar Lake driver issue) — try GPU
-    try:
-        from foundry_local.api import DeviceType
-        manager = FoundryLocalManager(MODEL_ALIAS, device=DeviceType.GPU)
-        # get_model_info returns NPU ID even with GPU device — use list_loaded_models instead
-        _loaded = manager.list_loaded_models()
-        MODEL_ID = _loaded[0].id if _loaded else manager.get_model_info(MODEL_ALIAS).id
-        client = OpenAI(base_url=manager.endpoint, api_key=manager.api_key)
-        DEFAULT_MODEL = MODEL_ID
-        FOUNDRY_AVAILABLE = True
-        print(f"  NPU unavailable ({_npu_err}), using GPU variant", flush=True)
-    except Exception:
-        manager = None
-        client = OpenAI(base_url="http://localhost:5272/v1", api_key="not-needed")
-        DEFAULT_MODEL = MODEL_ALIAS
+    mgr = FoundryLocalManager(alias, device=device) if device is not None else FoundryLocalManager(alias)
+    # Prefer the actually-loaded variant over alias-resolved (alias may resolve to NPU even on GPU device)
+    _loaded = mgr.list_loaded_models()
+    return mgr, (_loaded[0].id if _loaded else mgr.get_model_info(alias).id)
+
+try:
+    from foundry_local.api import DeviceType
+    import time as _t_init
+    # Explicit device preference order: NPU -> GPU -> whatever SDK picks.
+    # Each device gets up to 3 attempts with 1s backoff to ride out transient blips
+    # (Foundry service still settling, mid-restart, brief contention with another caller).
+    _device_order = (("NPU", DeviceType.NPU), ("GPU", DeviceType.GPU), ("default", None))
+    for _label, _device in _device_order:
+        for _try in range(3):
+            try:
+                manager, MODEL_ID = _load_foundry(MODEL_ALIAS, _device)
+                client = OpenAI(base_url=manager.endpoint, api_key=manager.api_key)
+                DEFAULT_MODEL = MODEL_ID
+                FOUNDRY_AVAILABLE = True
+                print(f"  Loaded via SDK ({_label}, try {_try + 1}): {MODEL_ID} @ {manager.endpoint}", flush=True)
+                break
+            except Exception as _err:
+                print(f"  {_label} init try {_try + 1}/3 failed: {type(_err).__name__}: {_err}", flush=True)
+                if _try < 2:
+                    _t_init.sleep(1)
+        if FOUNDRY_AVAILABLE:
+            break
+    if not FOUNDRY_AVAILABLE:
+        raise RuntimeError("All SDK device attempts failed after retries")
+except Exception as _init_err:
+    # Last resort: keep client as None and let foundry_chat() force a reconnect on first use.
+    # We do NOT silently point at a dead localhost:5272 -- that would mask the real failure.
+    manager = None
+    client = None
+    DEFAULT_MODEL = MODEL_ALIAS
+    print("=" * 70, flush=True)
+    print(f"  ERROR: Foundry SDK init failed: {_init_err}", flush=True)
+    print( "         Model calls will retry SDK init on first request.", flush=True)
+    print("=" * 70, flush=True)
+
+# Loudly warn if we landed on a CPU variant when an NPU one was expected
+if FOUNDRY_AVAILABLE and MODEL_ID:
+    _mid = MODEL_ID.lower()
+    if "generic-cpu" in _mid:
+        _npu_hint = "qwen2.5-7b-instruct-qnn-npu" if SILICON == "qualcomm" else "phi-4-mini-instruct-openvino-npu"
+        print("=" * 70, flush=True)
+        print("  WARNING: Running on CPU. The NPU variant is not loaded --", flush=True)
+        print("           inference will be roughly 10x slower than expected.", flush=True)
+        print(f"  To fix:  foundry model download {_npu_hint}", flush=True)
+        print( "           then restart this app.", flush=True)
+        print("=" * 70, flush=True)
+    elif "openvino-npu" in _mid or "qnn-npu" in _mid:
+        print(f"  Backend: NPU (optimal)", flush=True)
+    elif "openvino-gpu" in _mid or "generic-gpu" in _mid:
+        print(f"  Backend: GPU (NPU not available)", flush=True)
 
 import threading as _threading
 _reconnect_lock = _threading.Lock()
@@ -985,36 +1220,41 @@ def _reconnect_foundry():
     global client, manager, DEFAULT_MODEL, MODEL_ID, FOUNDRY_AVAILABLE
     with _reconnect_lock:
         try:
-            manager = FoundryLocalManager(MODEL_ALIAS)
-            MODEL_ID = manager.get_model_info(MODEL_ALIAS).id
-            client = OpenAI(base_url=manager.endpoint, api_key=manager.api_key)
-            DEFAULT_MODEL = MODEL_ID
-            FOUNDRY_AVAILABLE = True
-            print(f"  Reconnected to Foundry: {manager.endpoint}", flush=True)
-            return True
-        except Exception:
-            # NPU failed — try GPU
-            try:
-                from foundry_local.api import DeviceType
-                manager = FoundryLocalManager(MODEL_ALIAS, device=DeviceType.GPU)
-                _loaded = manager.list_loaded_models()
-                MODEL_ID = _loaded[0].id if _loaded else manager.get_model_info(MODEL_ALIAS).id
-                client = OpenAI(base_url=manager.endpoint, api_key=manager.api_key)
-                DEFAULT_MODEL = MODEL_ID
-                FOUNDRY_AVAILABLE = True
-                print(f"  Reconnected to Foundry (GPU): {manager.endpoint}", flush=True)
-                return True
-            except Exception as e:
-                print(f"  Reconnect failed: {e}", flush=True)
-                return False
+            from foundry_local.api import DeviceType
+            for _label, _device in (("NPU", DeviceType.NPU), ("GPU", DeviceType.GPU), ("default", None)):
+                try:
+                    manager, MODEL_ID = _load_foundry(MODEL_ALIAS, _device)
+                    client = OpenAI(base_url=manager.endpoint, api_key=manager.api_key)
+                    DEFAULT_MODEL = MODEL_ID
+                    FOUNDRY_AVAILABLE = True
+                    print(f"  Reconnected to Foundry ({_label}): {manager.endpoint} [{MODEL_ID}]", flush=True)
+                    return True
+                except Exception:
+                    continue
+            print(f"  Reconnect failed: all device attempts exhausted", flush=True)
+            return False
+        except Exception as e:
+            print(f"  Reconnect failed: {e}", flush=True)
+            return False
 
 def foundry_chat(retries=1, **kwargs):
-    """Wrapper around client.chat.completions.create with auto-reconnect."""
+    """Wrapper around client.chat.completions.create with auto-reconnect.
+
+    Triggers reconnect on connection errors or when client is missing/unavailable
+    (e.g. SDK init failed at boot, or Foundry restarted on a new port mid-session)."""
+    # If init failed and we never got a working client, force reconnect before first call.
+    if client is None or not FOUNDRY_AVAILABLE:
+        if retries > 0 and _reconnect_foundry():
+            kwargs["model"] = DEFAULT_MODEL
+            return client.chat.completions.create(**kwargs)
+        raise RuntimeError("Foundry is not available and reconnect failed")
     try:
         return client.chat.completions.create(**kwargs)
     except Exception as e:
-        if retries > 0 and ("Connection" in str(type(e).__name__) or "Connection" in str(e)):
-            print(f"  Foundry connection lost, reconnecting...", flush=True)
+        _is_conn = ("Connection" in str(type(e).__name__) or "Connection" in str(e)
+                    or "AttributeError" in str(type(e).__name__))
+        if retries > 0 and _is_conn:
+            print(f"  Foundry connection issue ({type(e).__name__}), reconnecting...", flush=True)
             if _reconnect_foundry():
                 kwargs["model"] = DEFAULT_MODEL
                 return client.chat.completions.create(**kwargs)
@@ -1791,6 +2031,7 @@ SESSION_STATS = {
     "input_tokens": 0,
     "output_tokens": 0,
     "inference_seconds": 0.0,
+    "calls_with_tokens": 0,
 }
 
 
@@ -1799,8 +2040,12 @@ def _track_model_call(response, elapsed_seconds):
     SESSION_STATS["calls"] += 1
     SESSION_STATS["inference_seconds"] += elapsed_seconds
     if hasattr(response, 'usage') and response.usage:
-        SESSION_STATS["input_tokens"] += response.usage.prompt_tokens or 0
-        SESSION_STATS["output_tokens"] += response.usage.completion_tokens or 0
+        _in = response.usage.prompt_tokens or 0
+        _out = response.usage.completion_tokens or 0
+        SESSION_STATS["input_tokens"] += _in
+        SESSION_STATS["output_tokens"] += _out
+        if _in > 0 or _out > 0:
+            SESSION_STATS["calls_with_tokens"] += 1
 
 
 AGENT_SYSTEM_PROMPT = (
@@ -2060,6 +2305,20 @@ def _path_in_demo_dir(path):
 def execute_tool(name, arguments):
     """Execute a tool with safety guardrails. Returns dict with success, output, error."""
     print(f"[DEBUG] execute_tool called: name={name}, arguments={arguments}")
+    # Governance: log agent tool invocations
+    _tool_display = {
+        "prep_next_client": ("Prep Next Client -- agent workflow", ["Phi-4 Mini", "Calendar MCP", "Dataverse MCP"]),
+        "my_calendar_today": ("Calendar appointment lookup", ["Calendar MCP"]),
+        "d365_customer_lookup": ("D365 customer profile lookup", ["Dataverse MCP"]),
+        "d365_check_in_queue": ("D365 check-in queue lookup", ["Dataverse MCP"]),
+        "d365_log_activity": ("D365 activity logged to CRM", ["Dataverse MCP"]),
+        "d365_recent_activities": ("D365 recent activities lookup", ["Dataverse MCP"]),
+        "read": ("File read -- local knowledge", ["Local Storage"]),
+        "exec": ("PowerShell command execution", ["Local Shell"]),
+    }
+    if name in _tool_display:
+        _action, _tools = _tool_display[name]
+        _governance_log_activity(_action, user="sarah.teller", auth_flow="OBO", tools=_tools)
     if name == "read":
         path = arguments.get("path", "")
         print(f"[DEBUG] read path='{path}', in_demo_dir={_path_in_demo_dir(path)}")
@@ -5371,7 +5630,9 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 return n.toLocaleString("en-US");
             }
             function updateSavingsWidget() {
-                // Merge server stats with client-side AI log for unified numbers
+                // Server stats are the source of truth for all tabs.
+                // Client-side Meeting Notes tokens are additive (Vision Service calls
+                // that bypass foundry_chat and aren't in server stats).
                 fetch("/session-stats")
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
@@ -5381,15 +5642,9 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                         var co2El = document.getElementById("savingsCO2");
                         var compactEl = document.getElementById("savingsCompact");
 
-                        // Use client-side log if available (more accurate for Meeting Notes tab)
-                        var log = window._inspAILog || [];
-                        var clientTokens = window._inspTotalTokens || 0;
-                        var clientOps = log.length;
-
-                        // If client has tracked operations, use client numbers
-                        // Otherwise fall back to server stats (for other tabs)
-                        var displayCalls = clientOps > 0 ? clientOps : data.calls;
-                        var displayTokens = clientTokens > 0 ? clientTokens : data.total_tokens;
+                        // Server stats cover all tabs (chat, briefing, auditor, ID, check, live assist, etc.)
+                        var displayCalls = data.calls;
+                        var displayTokens = data.total_tokens;
 
                         if (callsEl) callsEl.textContent = formatNumber(displayCalls) + " calls \u00b7 " + formatNumber(displayTokens) + " tokens";
 
@@ -5491,6 +5746,12 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 if (!badges.length) return;
                 badges.forEach(function(badge) {
                     badge.addEventListener("click", function() {
+                        // Admin persona: navigate to governance pane
+                        var govUrl = badge.getAttribute("data-governance");
+                        if (govUrl) {
+                            window.location.href = govUrl;
+                            return;
+                        }
                         var wasActive = badge.classList.contains("active");
                         badges.forEach(function(b) { b.classList.remove("active"); });
                         var navItems = document.querySelectorAll(".sidebar-nav-item[data-tab]");
@@ -11928,10 +12189,17 @@ def index():
     if personas:
         persona_html = '<div class="persona-switcher" id="personaSwitcher">'
         for p in personas:
-            tabs_json = json.dumps(p.get("tabs", []))
-            persona_html += f'<button class="persona-badge" data-persona-tabs=\'{tabs_json}\'>'
-            persona_html += f'<span class="persona-name">{p["name"]}</span>'
-            persona_html += f'<span class="persona-role">{p["role"]}</span></button>'
+            tabs = p.get("tabs", [])
+            if "governance" in tabs:
+                # Admin persona: link to governance pane instead of tab filtering
+                persona_html += f'<button class="persona-badge" data-governance="/governance">'
+                persona_html += f'<span class="persona-name">{p["name"]}</span>'
+                persona_html += f'<span class="persona-role">{p["role"]}</span></button>'
+            else:
+                tabs_json = json.dumps(tabs)
+                persona_html += f'<button class="persona-badge" data-persona-tabs=\'{tabs_json}\'>'
+                persona_html += f'<span class="persona-name">{p["name"]}</span>'
+                persona_html += f'<span class="persona-role">{p["role"]}</span></button>'
         persona_html += '</div>'
     else:
         persona_html = ''
@@ -14079,6 +14347,11 @@ def analyze_id():
 
     # Demo preset: McLovin (Superbad fake ID)
     if "McLOVIN" in ocr_text and "HAWAII" in ocr_text:
+        SESSION_STATS["calls"] += 1
+        SESSION_STATS["calls_with_tokens"] += 1
+        SESSION_STATS["input_tokens"] += 380
+        SESSION_STATS["output_tokens"] += 210
+        _governance_log_activity("ID verification -- photo ID scan (flagged)", tools=["Phi-4 Mini"])
         return jsonify({
             "fields": {
                 "name": "McLovin",
@@ -14099,6 +14372,11 @@ def analyze_id():
 
     # Demo preset: Jackie Rodriguez (valid, triggers D365 flow)
     if "RODRIGUEZ" in ocr_text and "JACKIE" in ocr_text and "MICHIGAN" in ocr_text:
+        SESSION_STATS["calls"] += 1
+        SESSION_STATS["calls_with_tokens"] += 1
+        SESSION_STATS["input_tokens"] += 380
+        SESSION_STATS["output_tokens"] += 210
+        _governance_log_activity("ID verification -- photo ID scan", tools=["Phi-4 Mini"])
         return jsonify({
             "fields": {
                 "name": "Jackie Marie Rodriguez",
@@ -14191,9 +14469,10 @@ Return ONLY valid JSON, no other text."""
                 "status": "Review Needed",
                 "notes": "AI response was not in expected format. Raw: " + result_text[:200]
             }
-        
+
+        _governance_log_activity("ID verification -- photo ID scan", tools=["Phi-4 Mini"])
         return jsonify(result)
-        
+
     except Exception as e:
         return jsonify({
             "error": str(e),
@@ -14212,6 +14491,11 @@ def analyze_check():
     # Check for demo OCR text (contains our known demo check markers)
     is_demo = ("JACKIE" in ocr_text and "RODRIGUEZ" in ocr_text and "1133" in ocr_text) or ("MICHIGAN POWER" in ocr_text and "245.89" in ocr_text)
     if is_demo:
+        SESSION_STATS["calls"] += 1
+        SESSION_STATS["calls_with_tokens"] += 1
+        SESSION_STATS["input_tokens"] += 420
+        SESSION_STATS["output_tokens"] += 250
+        _governance_log_activity("Check deposit scan and verification", tools=["Phi-4 Mini", "Dataverse MCP"])
         return jsonify({
             "fields": {
                 "payee_name": "Jackie Marie Rodriguez",
@@ -14294,6 +14578,7 @@ Return ONLY valid JSON, no other text."""
                 "status": "Review Needed",
                 "flags": [{"severity": "error", "message": "AI response was not in expected format"}]
             }
+        _governance_log_activity("Check deposit scan and verification", tools=["Phi-4 Mini", "Dataverse MCP"])
         return jsonify(result)
 
     except Exception as e:
@@ -14669,11 +14954,14 @@ def session_stats():
     output_tokens = SESSION_STATS["output_tokens"]
     inference_seconds = SESSION_STATS["inference_seconds"]
 
-    # Foundry Local doesn't report token usage - estimate from call count
-    # Average: ~600 input tokens (system prompt + content), ~300 output tokens
-    if calls > 0 and input_tokens == 0:
-        input_tokens = calls * 600
-        output_tokens = calls * 300
+    # Foundry Local often doesn't report token usage. Estimate for calls that
+    # returned 0 tokens: subtract calls that did report tokens from the total,
+    # then estimate ~600 input + ~300 output per unreported call.
+    calls_with_tokens = SESSION_STATS.get("calls_with_tokens", 0)
+    unreported_calls = max(0, calls - calls_with_tokens)
+    if unreported_calls > 0:
+        input_tokens += unreported_calls * 600
+        output_tokens += unreported_calls * 300
 
     # Cloud cost: Azure GPT-4o pricing with 1.5x enterprise overhead
     # Input: $2.50/1M tokens, Output: $10.00/1M tokens
@@ -14708,6 +14996,7 @@ def session_stats_reset():
     SESSION_STATS["input_tokens"] = 0
     SESSION_STATS["output_tokens"] = 0
     SESSION_STATS["inference_seconds"] = 0.0
+    SESSION_STATS["calls_with_tokens"] = 0
     return jsonify({"status": "reset"})
 
 
@@ -15335,6 +15624,7 @@ def router_analyze():
 
         total_time = round(_time.time() - start, 1)
         yield json.dumps({"type": "complete", "total_time": total_time}) + "\n"
+        _governance_log_activity("Compliance analysis -- PII Guard", tools=["Phi-4 Mini", "PII Guard"])
 
     return Response(generate(), mimetype='text/plain')
 
@@ -15395,6 +15685,13 @@ def router_decide():
         "success": True,
         "time": 0,
     })
+
+    if decision == 'decline':
+        _governance_log_activity("DLP policy applied -- PII redaction, escalation declined",
+                                user="agent (autonomous)", auth_flow="Agentic", tools=["PII Guard"])
+    else:
+        _governance_log_activity("Escalation approved -- PII redacted before cloud send",
+                                user="sarah.teller", auth_flow="OBO", tools=["PII Guard", "Azure OpenAI"])
 
     return jsonify(receipt)
 
@@ -15650,6 +15947,7 @@ def brief_me():
                 "time": total,
                 "counts": {"events": len(events), "tasks": len(tasks), "emails": len(emails)},
             }) + "\n"
+            _governance_log_activity("Morning briefing generated", tools=["Phi-4 Mini", "Calendar MCP"])
         except Exception as e:
             yield json.dumps({"type": "error", "message": str(e)}) + "\n"
 
@@ -16114,10 +16412,15 @@ def inspection_classify():
         import time as _classify_time
         _classify_time.sleep(1.5)  # Simulate inference time for demo realism
         result = dict(_DEMO_CLASSIFICATIONS[demo_type])
-        result["tokens_used"] = 0
+        SESSION_STATS["calls"] += 1
+        SESSION_STATS["calls_with_tokens"] += 1
+        SESSION_STATS["input_tokens"] += 200
+        SESSION_STATS["output_tokens"] += 100
+        result["tokens_used"] = 300
         result["inference_time"] = 1.5
         result["source"] = "demo_preset"
         print(f"[INSPECTION] Demo classification: {demo_type} -> {result['category']}")
+        _governance_log_activity("Document classification -- " + result.get("category", "unknown"), tools=["Phi Silica Vision"])
         return jsonify(result)
 
     # Try Phi Silica Vision microservice (localhost:5100)
@@ -16134,9 +16437,11 @@ def inspection_classify():
                     result["tokens_used"] = result.get("tokens_used", 300)
                     # Track in server-side session stats (Vision doesn't go through foundry_chat)
                     SESSION_STATS["calls"] += 1
+                    SESSION_STATS["calls_with_tokens"] += 1
                     SESSION_STATS["input_tokens"] += 200
                     SESSION_STATS["output_tokens"] += 100
                     print(f"[INSPECTION] Phi Silica Vision: {result.get('category')}")
+                    _governance_log_activity("Document classification -- " + result.get("category", "unknown"), tools=["Phi Silica Vision"])
                     return jsonify(result)
         except Exception as e:
             print(f"[INSPECTION] Vision service unavailable: {e}")
@@ -16253,6 +16558,7 @@ def inspection_annotate():
                 print(f"[ANNOTATION] Phi Silica Vision raw: {raw_desc}")
                 # Track in server-side session stats (Vision doesn't go through foundry_chat)
                 SESSION_STATS["calls"] += 1
+                SESSION_STATS["calls_with_tokens"] += 1
                 SESSION_STATS["input_tokens"] += 200
                 SESSION_STATS["output_tokens"] += 100
                 # Return the raw Vision description directly —
@@ -16458,6 +16764,7 @@ def inspection_report():
         else:
             tokens_used = 500
 
+        _governance_log_activity("Meeting report generated", tools=["Phi-4 Mini"])
         return jsonify({
             "report_html": report_html,
             "report_text": _re.sub(r'<[^>]+>', '', report_html).strip(),
@@ -16665,8 +16972,10 @@ def live_assist_analyze():
         # Clean up sentiment line from display text
         clean_text = re.sub(r'\n*SENTIMENT:\s*(POSITIVE|NEUTRAL|CAUTIOUS)\s*$', '', result_text, flags=re.IGNORECASE).strip()
 
+        _track_model_call(response, elapsed)
         print(f"[LIVE ASSIST] Analyzed {len(transcript_chunk)} chars -> {sentiment} ({tokens_used} tokens, {elapsed:.1f}s)")
 
+        _governance_log_activity("Live Assist -- real-time meeting insights", tools=["Phi-4 Mini"])
         return jsonify({
             "insights": clean_text,
             "sentiment": sentiment,
@@ -16871,6 +17180,7 @@ def polish_email():
             if result.get("rewritten"):
                 # Track in server-side session stats (Vision Service, not foundry_chat)
                 SESSION_STATS["calls"] += 1
+                SESSION_STATS["calls_with_tokens"] += 1
                 SESSION_STATS["input_tokens"] += 100
                 SESSION_STATS["output_tokens"] += 100
                 return jsonify({
@@ -17267,6 +17577,1570 @@ def api_config():
 def demo_mode_status():
     """Check if demo mode is enabled (bypasses offline requirement for Clean Room)."""
     return jsonify({"demo_mode": DEMO_MODE})
+
+
+# ---------------------------------------------------------------------------
+# Agent 365 Governance Pane
+# ---------------------------------------------------------------------------
+
+GOVERNANCE_TEMPLATE = r'''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 365 Governance -- {{APP_TITLE}}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #f3f2f1;
+    color: #323130;
+    min-height: 100vh;
+  }
+
+  /* BoF Header Strip */
+  .bof-header {
+    background: linear-gradient(135deg, {{BRAND_ACCENT}} 0%, {{BRAND_ACCENT_LIGHT}} 100%);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    height: 52px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .bof-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .bof-header-logo {
+    height: 28px;
+    border-radius: 4px;
+  }
+  .bof-header-title {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .bof-header-subtitle {
+    font-size: 11px;
+    opacity: 0.6;
+    margin-left: 8px;
+  }
+
+  /* Persona Switcher */
+  .persona-switcher {
+    display: flex;
+    gap: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 3px;
+  }
+  .persona-btn {
+    padding: 5px 14px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: rgba(255,255,255,0.65);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .persona-btn:hover {
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+  }
+  .persona-btn.active {
+    background: rgba(255,255,255,0.22);
+    color: #fff;
+    font-weight: 600;
+  }
+  .persona-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+  }
+  .dot-teller { background: #7EB8A0; }
+  .dot-manager { background: #9EC9D9; }
+  .dot-admin { background: #E8A838; }
+
+  /* Governance Sub-header */
+  .gov-subheader {
+    background: #fff;
+    border-bottom: 1px solid #edebe9;
+    padding: 16px 32px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .gov-shield {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, #0E5C8E, #1a7ab5);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .gov-subheader h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #0E5C8E;
+  }
+  .gov-subheader .gov-agent-name {
+    font-size: 13px;
+    color: #605E5C;
+    margin-top: 1px;
+  }
+  .gov-badge {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #107C10;
+    font-weight: 600;
+    background: #dff6dd;
+    padding: 5px 12px;
+    border-radius: 20px;
+    flex-shrink: 0;
+  }
+  .gov-badge::before {
+    content: '';
+    width: 8px; height: 8px;
+    background: #107C10;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  /* Metrics Row */
+  .metrics-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    padding: 20px 32px;
+    background: #f3f2f1;
+  }
+  .metric-card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    border: 1px solid #edebe9;
+  }
+  .metric-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #605E5C;
+    font-weight: 600;
+  }
+  .metric-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #0E5C8E;
+    margin-top: 4px;
+    line-height: 1.1;
+  }
+  .metric-sub {
+    font-size: 11px;
+    color: #a19f9d;
+    margin-top: 3px;
+  }
+
+  /* Three-Panel Body */
+  .gov-body {
+    display: grid;
+    grid-template-columns: 280px 1fr 280px;
+    gap: 16px;
+    padding: 0 32px 32px;
+    min-height: calc(100vh - 250px);
+  }
+  .panel {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    border: 1px solid #edebe9;
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid #edebe9;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #605E5C;
+    background: #faf9f8;
+  }
+  .panel-body {
+    padding: 16px 18px;
+  }
+
+  /* Left Panel: Agent Identity */
+  .identity-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #f3f2f1;
+    align-items: flex-start;
+  }
+  .identity-row:last-child { border-bottom: none; }
+  .identity-label {
+    font-size: 11px;
+    color: #605E5C;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    min-width: 80px;
+    padding-top: 2px;
+  }
+  .identity-value {
+    font-size: 13px;
+    color: #323130;
+    text-align: right;
+    word-break: break-all;
+  }
+  .identity-value.mono {
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 10.5px;
+    color: #605E5C;
+  }
+  .status-pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .pill-green { background: #dff6dd; color: #107C10; }
+  .pill-blue { background: #e8f0fe; color: #0E5C8E; }
+  .tool-list {
+    list-style: none;
+    margin-top: 4px;
+  }
+  .tool-list li {
+    font-size: 12px;
+    padding: 4px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-bottom: 1px solid #f3f2f1;
+  }
+  .tool-list li:last-child { border-bottom: none; }
+  .tool-check { color: #107C10; font-size: 13px; flex-shrink: 0; }
+  .perm-list { list-style: none; margin-top: 4px; }
+  .perm-list li {
+    font-size: 11px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    padding: 3px 0;
+    color: #605E5C;
+  }
+
+  /* Center Panel: Activity Timeline */
+  .timeline-panel .panel-body {
+    padding: 0;
+    max-height: calc(100vh - 310px);
+    overflow-y: auto;
+  }
+  .timeline-entry {
+    display: flex;
+    padding: 11px 18px;
+    border-bottom: 1px solid #f3f2f1;
+    gap: 12px;
+    align-items: flex-start;
+    border-left: 3px solid transparent;
+    transition: background 0.15s;
+  }
+  .timeline-entry:hover { background: #faf9f8; }
+  .timeline-entry.auth-obo { border-left-color: #0E5C8E; }
+  .timeline-entry.auth-agentic { border-left-color: #5C2D91; }
+  .timeline-ts {
+    font-size: 11px;
+    color: #a19f9d;
+    min-width: 48px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    padding-top: 1px;
+    flex-shrink: 0;
+  }
+  .timeline-content { flex: 1; min-width: 0; }
+  .timeline-action { font-size: 13px; font-weight: 500; color: #323130; }
+  .timeline-meta {
+    font-size: 11px;
+    color: #a19f9d;
+    margin-top: 2px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .timeline-user { color: #605E5C; }
+  .timeline-tools {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+  }
+  .tool-chip {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: #f3f2f1;
+    color: #605E5C;
+    white-space: nowrap;
+  }
+  .timeline-result { flex-shrink: 0; }
+  .result-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .result-success { background: #107C10; }
+  .timeline-date-divider {
+    padding: 8px 18px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #a19f9d;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background: #faf9f8;
+    border-bottom: 1px solid #edebe9;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .auth-legend {
+    display: flex;
+    gap: 16px;
+    padding: 10px 18px;
+    border-bottom: 1px solid #edebe9;
+    background: #faf9f8;
+  }
+  .auth-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #605E5C;
+  }
+  .legend-bar { width: 14px; height: 3px; border-radius: 2px; }
+  .legend-obo { background: #0E5C8E; }
+  .legend-agentic { background: #5C2D91; }
+
+  /* Right Panel: Policy Status */
+  .policy-card {
+    padding: 14px 0;
+    border-bottom: 1px solid #f3f2f1;
+  }
+  .policy-card:last-child { border-bottom: none; }
+  .policy-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .policy-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #323130;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .policy-icon {
+    width: 24px; height: 24px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .policy-icon-ca { background: #e8f0fe; }
+  .policy-icon-dlp { background: #fff4ce; }
+  .policy-icon-purview { background: #e8dff6; }
+  .policy-icon-defender { background: #fde7e9; }
+  .policy-detail {
+    font-size: 11px;
+    color: #a19f9d;
+    margin-top: 3px;
+    padding-left: 32px;
+  }
+  .policy-detail strong { color: #605E5C; font-weight: 600; }
+  .cert-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #edebe9;
+  }
+  .cert-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #605E5C;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .cert-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 12px;
+    color: #323130;
+  }
+  .cert-check { color: #107C10; font-size: 14px; }
+
+  /* Scrollbar */
+  .timeline-panel .panel-body::-webkit-scrollbar { width: 6px; }
+  .timeline-panel .panel-body::-webkit-scrollbar-track { background: transparent; }
+  .timeline-panel .panel-body::-webkit-scrollbar-thumb { background: #d2d0ce; border-radius: 3px; }
+
+  /* Live pulse */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .live-dot {
+    width: 6px; height: 6px;
+    background: #107C10;
+    border-radius: 50%;
+    display: inline-block;
+    animation: pulse 2s ease-in-out infinite;
+    margin-right: 4px;
+  }
+
+  /* Shadow AI alert animation */
+  @keyframes alertPulse {
+    0% { opacity: 0; transform: scale(0.95); }
+    50% { transform: scale(1.02); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  @keyframes alertShake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-3px); }
+    40% { transform: translateX(3px); }
+    60% { transform: translateX(-2px); }
+    80% { transform: translateX(2px); }
+  }
+  .pill-red { background: #fde7e9; color: #D13438; }
+  .pill-amber { background: #fff4ce; color: #986F0B; }
+  .defender-alert-active { border-left: 3px solid #D13438 !important; background: #fef6f6; }
+
+  /* Agent type badges */
+  .agent-type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .badge-local-npu {
+    background: #dff6dd;
+    color: #107C10;
+    border: 1px solid #c3e6c3;
+  }
+  .badge-copilot {
+    background: #e8f0fe;
+    color: #0E5C8E;
+    border: 1px solid #c4d9f0;
+  }
+  .badge-shadow {
+    background: #fde7e9;
+    color: #D13438;
+    border: 1px solid #f0c0c3;
+  }
+  .agent-type-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .dot-local { background: #107C10; }
+  .dot-copilot { background: #0E5C8E; }
+  .dot-shadow { background: #D13438; }
+
+  /* Registered agents section */
+  .registered-agents {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #edebe9;
+  }
+  .agent-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid #f3f2f1;
+  }
+  .agent-row:last-child { border-bottom: none; }
+  .agent-row-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: #323130;
+  }
+  .agent-row-detail {
+    font-size: 10px;
+    color: #a19f9d;
+  }
+
+  /* Activity detail view (left panel toggle) */
+  .left-panel-view { transition: opacity 0.25s ease; }
+  .left-panel-view.hidden { display: none; }
+  .detail-back {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 11px; color: #0E5C8E; cursor: pointer;
+    border: none; background: none; padding: 0; font-family: inherit;
+    font-weight: 600; margin-bottom: 12px;
+  }
+  .detail-back:hover { text-decoration: underline; }
+  .detail-section {
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #f3f2f1;
+  }
+  .detail-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .detail-section-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: #a19f9d; font-weight: 600; margin-bottom: 6px;
+  }
+  .detail-field {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 3px 0; font-size: 12px;
+  }
+  .detail-field-label { color: #605E5C; font-weight: 500; min-width: 70px; }
+  .detail-field-value { color: #323130; text-align: right; word-break: break-all; }
+  .detail-action-title {
+    font-size: 15px; font-weight: 600; color: #323130;
+    line-height: 1.3; margin-bottom: 4px;
+  }
+  .detail-auth-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .auth-badge-obo { background: #e8f0fe; color: #0E5C8E; }
+  .auth-badge-agentic { background: #e8dff6; color: #5C2D91; }
+  .detail-policy-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 0;
+  }
+  .detail-policy-name { font-size: 12px; color: #323130; }
+  .detail-tool-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; padding: 3px 8px; border-radius: 5px;
+    background: #f3f2f1; color: #323130; margin: 2px 2px 2px 0;
+  }
+  .detail-tool-check { color: #107C10; font-size: 11px; }
+  .timeline-entry { cursor: pointer; }
+  .timeline-entry.selected { background: #eaf3fc !important; }
+</style>
+</head>
+<body>
+
+<!-- BoF Header Strip -->
+<div class="bof-header">
+  <div class="bof-header-left">
+    {{GOV_HEADER_LOGO}}
+    <span class="bof-header-title">{{APP_TITLE}}</span>
+    <span class="bof-header-subtitle">{{APP_SUBTITLE}}</span>
+  </div>
+  <div class="persona-switcher">
+    {{GOV_PERSONA_BUTTONS}}
+  </div>
+</div>
+
+<!-- Governance Sub-header -->
+<div class="gov-subheader">
+  <div class="gov-shield">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2">
+      <path d="M12 2L4 5v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V5L12 2z"/>
+      <path d="M9 12l2 2 4-4"/>
+    </svg>
+  </div>
+  <div>
+    <h1>Agent 365 Governance</h1>
+    <div class="gov-agent-name">{{GOV_AGENT_NAME}} -- {{GOV_AGENT_BRANCH}}</div>
+  </div>
+  <div class="gov-badge">All Policies Compliant</div>
+</div>
+
+<!-- Metrics Row -->
+<div class="metrics-row">
+  <div class="metric-card">
+    <div class="metric-label">Activities (30d)</div>
+    <div class="metric-value">{{GOV_METRIC_ACTIVITIES}}</div>
+    <div class="metric-sub">{{GOV_METRIC_ACTIVITIES_DELTA}}</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Success Rate</div>
+    <div class="metric-value">{{GOV_METRIC_SUCCESS}}</div>
+    <div class="metric-sub">{{GOV_METRIC_SUCCESS_DETAIL}}</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Avg Response Time</div>
+    <div class="metric-value">{{GOV_METRIC_RESPONSE}}</div>
+    <div class="metric-sub">{{GOV_METRIC_RESPONSE_DETAIL}}</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Policy Violations</div>
+    <div class="metric-value" style="color: #107C10;">{{GOV_METRIC_VIOLATIONS}}</div>
+    <div class="metric-sub">{{GOV_METRIC_VIOLATIONS_DETAIL}}</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Tokens Processed (30d)</div>
+    <div class="metric-value">{{GOV_METRIC_TOKENS}}</div>
+    <div class="metric-sub">{{GOV_METRIC_TOKENS_DETAIL}}</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-card" style="background:linear-gradient(135deg, #f0faf0, #fff); border:1px solid #c3e6c3; padding:0; box-shadow:none;">
+    <div class="metric-label">Local AI Cost</div>
+    <div class="metric-value" style="color: #107C10;">$0.00</div>
+    <div class="metric-sub">{{GOV_METRIC_COST_DETAIL}}</div>
+  </div></div>
+</div>
+
+<!-- Three-Panel Body -->
+<div class="gov-body">
+
+  <!-- LEFT: Agent Identity -->
+  <div class="panel" id="leftPanel">
+    <div class="panel-header" id="leftPanelHeader">Agent Identity</div>
+    <div class="panel-body">
+      <!-- Agent Identity View (default) -->
+      <div id="identityView" class="left-panel-view">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+        <span class="agent-type-badge badge-local-npu"><span class="agent-type-dot dot-local"></span> Local NPU</span>
+        <span class="status-pill pill-green">{{GOV_AGENT_STATUS}}</span>
+      </div>
+      <div class="identity-row">
+        <span class="identity-label">Name</span>
+        <span class="identity-value">{{GOV_AGENT_NAME}}</span>
+      </div>
+      <div class="identity-row">
+        <span class="identity-label">Platform</span>
+        <span class="identity-value">{{GOV_AGENT_PLATFORM}}</span>
+      </div>
+      <div class="identity-row">
+        <span class="identity-label">Publisher</span>
+        <span class="identity-value">{{GOV_AGENT_PUBLISHER}}</span>
+      </div>
+      <div class="identity-row">
+        <span class="identity-label">Owner</span>
+        <span class="identity-value">{{GOV_AGENT_OWNER}}</span>
+      </div>
+      <div class="identity-row">
+        <span class="identity-label">Entra ID</span>
+        <span class="identity-value mono">{{GOV_AGENT_ENTRA_ID}}</span>
+      </div>
+      <div class="identity-row">
+        <span class="identity-label">Blueprint</span>
+        <span class="identity-value mono">{{GOV_AGENT_BLUEPRINT}}</span>
+      </div>
+      <div class="identity-row">
+        <span class="identity-label">Deploy</span>
+        <span class="identity-value"><span class="status-pill pill-blue">{{GOV_AGENT_DEPLOY}}</span></span>
+      </div>
+
+      <div style="margin-top: 14px;">
+        <div class="identity-label" style="margin-bottom: 6px;">Permissions</div>
+        <ul class="perm-list">{{GOV_PERMISSIONS}}</ul>
+      </div>
+
+      <div style="margin-top: 14px;">
+        <div class="identity-label" style="margin-bottom: 6px;">Approved Tools</div>
+        <ul class="tool-list">{{GOV_TOOLS}}</ul>
+      </div>
+
+      <div class="cert-section">
+        <div class="cert-section-title">Certifications</div>
+        {{GOV_CERTIFICATIONS}}
+      </div>
+
+      <div class="registered-agents">
+        <div class="cert-section-title">Registered Agents (3)</div>
+        <div class="agent-row">
+          <div>
+            <div class="agent-row-name">Branch Concierge Agent</div>
+            <div class="agent-row-detail">Phi-4 Mini on NPU</div>
+          </div>
+          <span class="agent-type-badge badge-local-npu" style="font-size:9px; padding:2px 7px;"><span class="agent-type-dot dot-local"></span> Local</span>
+        </div>
+        <div class="agent-row">
+          <div>
+            <div class="agent-row-name">Microsoft 365 Copilot</div>
+            <div class="agent-row-detail">GPT-4o via Azure</div>
+          </div>
+          <span class="agent-type-badge badge-copilot" style="font-size:9px; padding:2px 7px;"><span class="agent-type-dot dot-copilot"></span> Cloud</span>
+        </div>
+        <div class="agent-row" id="shadowAgentRow" style="display:none;">
+          <div>
+            <div class="agent-row-name" style="color:#D13438;">Unknown Agent (Shadow)</div>
+            <div class="agent-row-detail">api.openai.com -- teller2</div>
+          </div>
+          <span class="agent-type-badge badge-shadow" style="font-size:9px; padding:2px 7px;"><span class="agent-type-dot dot-shadow"></span> Shadow</span>
+        </div>
+      </div>
+      </div><!-- end identityView -->
+
+      <!-- Activity Detail View (shown on timeline click) -->
+      <div id="detailView" class="left-panel-view hidden">
+        <button class="detail-back" id="detailBackBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Agent Identity
+        </button>
+        <div id="detailContent"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER: Activity Timeline -->
+  <div class="panel timeline-panel">
+    <div class="panel-header" style="display:flex; align-items:center; justify-content:space-between;">
+      <span>Activity Timeline</span>
+      <span style="font-size:11px; font-weight:400; text-transform:none; letter-spacing:0; color:#a19f9d;">
+        <span class="live-dot"></span>Live
+      </span>
+    </div>
+    <div class="auth-legend">
+      <div class="auth-legend-item"><span class="legend-bar legend-obo"></span> On-Behalf-Of (OBO)</div>
+      <div class="auth-legend-item"><span class="legend-bar legend-agentic"></span> Agentic</div>
+    </div>
+    <div class="panel-body">
+      {{GOV_TIMELINE}}
+    </div>
+  </div>
+
+  <!-- RIGHT: Policy & Compliance -->
+  <div class="panel">
+    <div class="panel-header">Policy & Compliance</div>
+    <div class="panel-body">
+
+      <div class="policy-card">
+        <div class="policy-card-header">
+          <div class="policy-name">
+            <span class="policy-icon policy-icon-ca">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0E5C8E" stroke-width="2"><path d="M12 2L4 5v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V5L12 2z"/></svg>
+            </span>
+            Conditional Access
+          </div>
+          <span class="status-pill pill-green">{{GOV_CA_STATUS}}</span>
+        </div>
+        <div class="policy-detail">Last evaluated: <strong>{{GOV_CA_LAST}}</strong></div>
+        <div class="policy-detail">Device: <strong>{{GOV_CA_DEVICE}}</strong></div>
+        <div class="policy-detail">Location: <strong>{{GOV_CA_LOCATION}}</strong></div>
+      </div>
+
+      <div class="policy-card">
+        <div class="policy-card-header">
+          <div class="policy-name">
+            <span class="policy-icon policy-icon-dlp">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#986F0B" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+            </span>
+            Data Loss Prevention
+          </div>
+          <span class="status-pill pill-green">{{GOV_DLP_STATUS}}</span>
+        </div>
+        <div class="policy-detail">Policies applied: <strong>{{GOV_DLP_POLICIES}}</strong></div>
+        <div class="policy-detail">PII redacted before escalation: <strong>{{GOV_DLP_PII}}</strong></div>
+        <div class="policy-detail">Data egress: <strong>{{GOV_DLP_EGRESS}}</strong></div>
+      </div>
+
+      <div class="policy-card">
+        <div class="policy-card-header">
+          <div class="policy-name">
+            <span class="policy-icon policy-icon-purview">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5C2D91" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            </span>
+            Purview Compliance
+          </div>
+          <span class="status-pill pill-green">{{GOV_PURVIEW_STATUS}}</span>
+        </div>
+        <div class="policy-detail">Retention: <strong>{{GOV_PURVIEW_RETENTION}} days</strong></div>
+        <div class="policy-detail">Audit log: <strong>{{GOV_PURVIEW_AUDIT}}</strong></div>
+        <div class="policy-detail">Labels: <strong>{{GOV_PURVIEW_LABELS}}</strong></div>
+      </div>
+
+      <div class="policy-card" id="defenderCard">
+        <div class="policy-card-header">
+          <div class="policy-name">
+            <span class="policy-icon policy-icon-defender">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#D13438" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </span>
+            Defender for Cloud
+          </div>
+          <span class="status-pill pill-green" id="defenderPill">{{GOV_DEFENDER_STATUS}}</span>
+        </div>
+        <div class="policy-detail" id="defenderAlerts">Active alerts: <strong style="color:#107C10;">{{GOV_DEFENDER_ALERTS}}</strong></div>
+        <div class="policy-detail" id="defenderShadow">Shadow AI detected: <strong style="color:#107C10;">{{GOV_DEFENDER_SHADOW}}</strong></div>
+        <div class="policy-detail" id="defenderThreat">Threat score: <strong style="color:#107C10;">{{GOV_DEFENDER_THREAT}}</strong></div>
+        <!-- Shadow AI Alert (hidden until triggered) -->
+        <div id="shadowAlert" style="display:none; margin-top:10px; background:#fde7e9; border:1px solid #D13438; border-radius:8px; padding:12px; animation: alertPulse 0.6s ease-out;">
+          <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#D13438" stroke="none"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            <strong style="color:#D13438; font-size:12px;">SHADOW AI DETECTED</strong>
+          </div>
+          <div style="font-size:11px; color:#605E5C; line-height:1.5;">
+            <div><strong>Endpoint:</strong> <span style="font-family:'Cascadia Code',monospace; font-size:10px;">api.openai.com:443</span></div>
+            <div><strong>Device:</strong> DESKTOP-BRANCH-03</div>
+            <div><strong>User:</strong> teller2@zavafinancial.com</div>
+            <div><strong>Data risk:</strong> <span style="color:#D13438; font-weight:600;">Sensitivity-labeled document detected in clipboard</span></div>
+            <div style="margin-top:4px; font-size:10px; color:#a19f9d;">Document: "Q2 Client Portfolio Review.xlsx" (Company Confidential)</div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:10px;">
+            <button id="blockShadowBtn" style="background:#D13438; color:#fff; border:none; border-radius:6px; padding:6px 16px; font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; transition: background 0.2s;">Block & Report</button>
+            <button id="investigateBtn" style="background:#fff; color:#605E5C; border:1px solid #d2d0ce; border-radius:6px; padding:6px 16px; font-size:11px; cursor:pointer; font-family:inherit;">Investigate</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="cert-section">
+        <div class="cert-section-title">Sovereignty Summary</div>
+        <div class="policy-detail" style="padding-left:0;">Inference: <strong>100% on-device (NPU)</strong></div>
+        <div class="policy-detail" style="padding-left:0;">Data residency: <strong>Local SSD only</strong></div>
+        <div class="policy-detail" style="padding-left:0;">Network calls: <strong>0 to external AI</strong></div>
+        <div class="policy-detail" style="padding-left:0; margin-top:8px; color:#0E5C8E; font-weight:600;">
+          All AI processing governed by Agent 365.<br>
+          Zero data egress. Full audit trail.
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function() {
+  var lastCount = 0;
+  var timeline = document.querySelector('.timeline-panel .panel-body');
+  if (!timeline) return;
+
+  // Find first date divider to insert live entries before
+  function getFirstDivider() {
+    return timeline.querySelector('.timeline-date-divider');
+  }
+
+  function buildEntry(e) {
+    var authCls = e.authFlow === 'OBO' ? 'auth-obo' : 'auth-agentic';
+    var chips = (e.tools || []).map(function(t) {
+      return '<span class="tool-chip">' + t + '</span>';
+    }).join('');
+    var div = document.createElement('div');
+    div.className = 'timeline-entry ' + authCls;
+    div.setAttribute('data-entry', JSON.stringify(e));
+    div.style.opacity = '0';
+    div.style.transform = 'translateY(-8px)';
+    div.style.transition = 'opacity 0.4s, transform 0.4s';
+    div.innerHTML =
+      '<span class="timeline-ts">' + e.time + '</span>' +
+      '<div class="timeline-content">' +
+        '<div class="timeline-action">' + e.action + '</div>' +
+        '<div class="timeline-meta">' +
+          '<span class="timeline-user">' + e.user + '</span>' +
+          '<span>' + e.authFlow + '</span>' +
+        '</div>' +
+        '<div class="timeline-tools">' + chips + '</div>' +
+      '</div>' +
+      '<span class="timeline-result"><span class="result-dot result-success"></span></span>';
+    return div;
+  }
+
+  // Ensure a "Live Session" divider exists at top
+  var liveDivider = null;
+  function ensureLiveDivider() {
+    if (liveDivider) return;
+    liveDivider = document.createElement('div');
+    liveDivider.className = 'timeline-date-divider';
+    liveDivider.style.background = '#eaf6ee';
+    liveDivider.style.color = '#107C10';
+    liveDivider.innerHTML = '<span class="live-dot"></span> Live Session';
+    var first = getFirstDivider();
+    if (first) {
+      timeline.insertBefore(liveDivider, first);
+    } else {
+      timeline.prepend(liveDivider);
+    }
+  }
+
+  function poll() {
+    fetch('/governance/activities')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var liveCount = data.live_count || 0;
+        if (liveCount > lastCount) {
+          ensureLiveDivider();
+          // Insert new entries (newest first in the array, but we insert after divider)
+          var newEntries = data.entries.slice(0, liveCount - lastCount);
+          newEntries.reverse(); // oldest of the new batch first so order is right
+          for (var i = 0; i < newEntries.length; i++) {
+            var entry = newEntries[i];
+            var el = buildEntry(entry);
+            // Insert right after the live divider
+            if (liveDivider.nextSibling) {
+              timeline.insertBefore(el, liveDivider.nextSibling);
+            } else {
+              timeline.appendChild(el);
+            }
+            // Animate in
+            (function(node) {
+              setTimeout(function() {
+                node.style.opacity = '1';
+                node.style.transform = 'translateY(0)';
+              }, 50);
+            })(el);
+          }
+          // Update metrics
+          var metricEls = document.querySelectorAll('.metric-value');
+          if (metricEls.length >= 1) {
+            metricEls[0].textContent = String(47 + liveCount);
+          }
+          lastCount = liveCount;
+        }
+      })
+      .catch(function() {});
+  }
+
+  setInterval(poll, 2000);
+})();
+
+// === Activity Detail View (left panel) ===
+(function() {
+  var identityView = document.getElementById('identityView');
+  var detailView = document.getElementById('detailView');
+  var detailContent = document.getElementById('detailContent');
+  var detailBackBtn = document.getElementById('detailBackBtn');
+  var leftPanelHeader = document.getElementById('leftPanelHeader');
+  if (!identityView || !detailView) return;
+
+  // Simulated enrichment data per action type
+  var enrichments = {
+    'Prep Next Client': {
+      dataAccessed: ['Calendar: 7 events queried', 'D365: Contact record (Jackie Rodriguez)', 'Product Catalog: 27 products, 13 triggers'],
+      tokenCount: '842 input / 386 output',
+      duration: '8.2s',
+      device: 'SURFACE-LAPTOP-7-5G',
+      network: 'Branch WiFi (trusted)',
+    },
+    'Calendar appointment': {
+      dataAccessed: ['Calendar: calendarView endpoint', 'Events: today only (scoped)'],
+      tokenCount: '120 input / 45 output',
+      duration: '1.1s',
+      device: 'SURFACE-LAPTOP-7-5G',
+      network: 'Branch WiFi (trusted)',
+    },
+    'D365 customer': {
+      dataAccessed: ['Dataverse: contacts entity', 'Fields: name, email, phone, address, notes'],
+      tokenCount: 'N/A (MCP direct)',
+      duration: '2.3s',
+      device: 'SURFACE-LAPTOP-7-5G',
+      network: 'Branch WiFi (trusted)',
+    },
+    'ID verification': {
+      dataAccessed: ['Camera: image captured locally', 'OCR: Tesseract.js (client-side)', 'AI: field extraction + validation'],
+      tokenCount: '380 input / 210 output',
+      duration: '3.5s',
+      device: 'SURFACE-LAPTOP-7-5G',
+      network: 'None (fully offline capable)',
+    },
+    'Morning briefing': {
+      dataAccessed: ['Calendar: 7 events', 'Email: 5 messages', 'Tasks: 4 items'],
+      tokenCount: '920 input / 480 output',
+      duration: '6.8s',
+      device: 'SURFACE-LAPTOP-7-5G',
+      network: 'Branch WiFi (trusted)',
+    },
+    'VIP arrival': {
+      dataAccessed: ['Dataverse: contact match', 'Phi Silica Vision: facial recognition placeholder'],
+      tokenCount: 'N/A (agentic trigger)',
+      duration: '0.8s',
+      device: 'SURFACE-LAPTOP-7-5G',
+      network: 'Branch WiFi (trusted)',
+    },
+    'Shadow AI detected': {
+      dataAccessed: [
+        'Entra Internet Access: TLS inspection on outbound traffic',
+        'Destination: api.openai.com:443 (unsanctioned)',
+        'User: teller2@zavafinancial.com',
+        'Device: DESKTOP-BRANCH-03 (Intune managed)',
+        'Clipboard: sensitivity-labeled content detected',
+        'Document: "Q2 Client Portfolio Review.xlsx"',
+        'Sensitivity label: Company Confidential',
+        'MDCA risk score: 7/10 (High -- generative AI, data residency unknown)',
+      ],
+      tokenCount: 'N/A (network detection)',
+      duration: '< 1s (real-time inspection)',
+      device: 'DESKTOP-BRANCH-03',
+      network: 'Branch WiFi (egress to api.openai.com blocked)',
+    },
+    'Shadow AI blocked': {
+      dataAccessed: [
+        'Defender: endpoint api.openai.com added to block list',
+        'Intune: device DESKTOP-BRANCH-03 isolated pending review',
+        'Entra ID: user session teller2@ revoked',
+        'Purview: incident IR-2026-0847 created',
+        'Notification: email sent to teller2@ and branch manager',
+        'MDCA: app "OpenAI ChatGPT" marked unsanctioned org-wide',
+      ],
+      tokenCount: 'N/A (policy enforcement)',
+      duration: '2.1s (block + isolate + notify)',
+      device: 'DESKTOP-BRANCH-03',
+      network: 'Isolated (pending admin review)',
+    },
+    'DLP policy applied': {
+      dataAccessed: [
+        'PII Scanner: document scanned for sensitive content',
+        'Findings: SSN, email, phone number detected',
+        'Action: PII redacted before cloud escalation',
+        'Redaction count: 3 items replaced with [REDACTED]',
+      ],
+      tokenCount: 'N/A (policy engine)',
+      duration: '0.3s',
+      device: 'SURFACE-LAPTOP-7-5G',
+      network: 'None (local scan)',
+    },
+    'Compliance analysis': {
+      dataAccessed: [
+        'Document: uploaded by user',
+        'PII scan: automated pre-analysis',
+        'Local model: structured risk assessment',
+      ],
+      tokenCount: '~600 input / ~400 output',
+      duration: '~5s',
+      device: 'SURFACE-LAPTOP-7-5G',
+      network: 'None (fully local)',
+    },
+    'default': {
+      dataAccessed: ['Local inference only'],
+      tokenCount: '~400 input / ~200 output',
+      duration: '~3s',
+      device: 'SURFACE-LAPTOP-7-5G',
+      network: 'Branch WiFi (trusted)',
+    }
+  };
+
+  function getEnrichment(action) {
+    for (var key in enrichments) {
+      if (key !== 'default' && action.indexOf(key) !== -1) return enrichments[key];
+    }
+    return enrichments['default'];
+  }
+
+  function showDetail(entry) {
+    var e = getEnrichment(entry.action);
+    var authBadgeCls = entry.authFlow === 'OBO' ? 'auth-badge-obo' : 'auth-badge-agentic';
+    var authLabel = entry.authFlow === 'OBO' ? 'On-Behalf-Of' : 'Agentic (Autonomous)';
+
+    var toolsHtml = (entry.tools || []).map(function(t) {
+      return '<span class="detail-tool-chip"><span class="detail-tool-check">&#10003;</span> ' + t + '</span>';
+    }).join('');
+
+    var dataHtml = (e.dataAccessed || []).map(function(d) {
+      return '<div style="font-size:11px; color:#605E5C; padding:2px 0;">&#8226; ' + d + '</div>';
+    }).join('');
+
+    var isAlert = entry.isAlert || false;
+    var isResolved = entry.isResolved || false;
+    var isThreat = isAlert || isResolved;
+
+    var policyData = isThreat ? [
+      {name: 'Conditional Access', status: isAlert ? 'Evaluating' : 'Re-enforced', pill: isAlert ? 'pill-amber' : 'pill-green'},
+      {name: 'DLP', status: isAlert ? 'Violation' : 'Enforced', pill: isAlert ? 'pill-red' : 'pill-green'},
+      {name: 'Purview', status: isAlert ? 'Incident created' : 'Retained', pill: isAlert ? 'pill-amber' : 'pill-green'},
+      {name: 'Defender', status: isAlert ? 'ALERT' : 'Resolved', pill: isAlert ? 'pill-red' : 'pill-green'},
+    ] : [
+      {name: 'Conditional Access', status: 'Passed', pill: 'pill-green'},
+      {name: 'DLP', status: 'Passed', pill: 'pill-green'},
+      {name: 'Purview Retention', status: 'Applied', pill: 'pill-green'},
+      {name: 'Defender', status: 'No threats', pill: 'pill-green'},
+    ];
+    var policyRows = policyData.map(function(p) {
+      return '<div class="detail-policy-row">' +
+        '<span class="detail-policy-name">' + p.name + '</span>' +
+        '<span class="status-pill ' + p.pill + '" style="font-size:9px; padding:1px 7px;">' + p.status + '</span>' +
+      '</div>';
+    }).join('');
+
+    var resultPill = isAlert ? 'pill-red' : (isResolved ? 'pill-green' : 'pill-green');
+    var resultText = entry.result || 'Success';
+    var actionStyle = isAlert ? ' style="color:#D13438;"' : (isResolved ? ' style="color:#107C10;"' : '');
+
+    detailContent.innerHTML =
+      '<div class="detail-section">' +
+        '<div class="detail-action-title"' + actionStyle + '>' + entry.action + '</div>' +
+        '<div style="margin-top:6px;">' +
+          '<span class="detail-auth-badge ' + authBadgeCls + '">' + authLabel + '</span>' +
+          (isThreat ? ' <span class="agent-type-badge badge-shadow" style="font-size:9px; padding:2px 7px; margin-left:4px;"><span class="agent-type-dot dot-shadow"></span> ' + (isAlert ? 'Threat' : 'Resolved') + '</span>' : '') +
+        '</div>' +
+      '</div>' +
+
+      '<div class="detail-section">' +
+        '<div class="detail-section-title">Event Details</div>' +
+        '<div class="detail-field"><span class="detail-field-label">Timestamp</span><span class="detail-field-value">' + entry.date + ' ' + entry.time + ' UTC</span></div>' +
+        '<div class="detail-field"><span class="detail-field-label">User</span><span class="detail-field-value">' + entry.user + '</span></div>' +
+        '<div class="detail-field"><span class="detail-field-label">Result</span><span class="detail-field-value"><span class="status-pill ' + resultPill + '" style="font-size:9px; padding:1px 7px;">' + resultText + '</span></span></div>' +
+        '<div class="detail-field"><span class="detail-field-label">ID</span><span class="detail-field-value mono" style="font-size:10px;">' + (entry.id || 'act-' + Math.random().toString(36).substr(2,5)) + '</span></div>' +
+      '</div>' +
+
+      '<div class="detail-section">' +
+        '<div class="detail-section-title">Tools Invoked</div>' +
+        '<div style="display:flex; flex-wrap:wrap; gap:2px;">' + toolsHtml + '</div>' +
+      '</div>' +
+
+      '<div class="detail-section">' +
+        '<div class="detail-section-title">Data Accessed</div>' +
+        dataHtml +
+      '</div>' +
+
+      '<div class="detail-section">' +
+        '<div class="detail-section-title">Performance</div>' +
+        '<div class="detail-field"><span class="detail-field-label">Tokens</span><span class="detail-field-value" style="font-size:11px;">' + e.tokenCount + '</span></div>' +
+        '<div class="detail-field"><span class="detail-field-label">Duration</span><span class="detail-field-value">' + e.duration + '</span></div>' +
+        '<div class="detail-field"><span class="detail-field-label">Device</span><span class="detail-field-value mono" style="font-size:10px;">' + e.device + '</span></div>' +
+        '<div class="detail-field"><span class="detail-field-label">Network</span><span class="detail-field-value" style="font-size:11px;">' + e.network + '</span></div>' +
+      '</div>' +
+
+      '<div class="detail-section">' +
+        '<div class="detail-section-title">Policy Evaluations</div>' +
+        policyRows +
+      '</div>';
+
+    identityView.classList.add('hidden');
+    detailView.classList.remove('hidden');
+    leftPanelHeader.textContent = 'Activity Detail';
+  }
+
+  function showIdentity() {
+    detailView.classList.add('hidden');
+    identityView.classList.remove('hidden');
+    leftPanelHeader.textContent = 'Agent Identity';
+    document.querySelectorAll('.timeline-entry.selected').forEach(function(el) {
+      el.classList.remove('selected');
+    });
+  }
+
+  detailBackBtn.addEventListener('click', showIdentity);
+
+  // Delegate clicks on timeline entries
+  var timeline = document.querySelector('.timeline-panel .panel-body');
+  if (timeline) {
+    timeline.addEventListener('click', function(evt) {
+      var row = evt.target.closest('.timeline-entry');
+      if (!row) return;
+      var raw = row.getAttribute('data-entry');
+      if (!raw) return;
+      try {
+        var entry = JSON.parse(raw);
+        document.querySelectorAll('.timeline-entry.selected').forEach(function(el) {
+          el.classList.remove('selected');
+        });
+        row.classList.add('selected');
+        showDetail(entry);
+      } catch(e) {}
+    });
+  }
+})();
+
+// === Shadow AI Alert (Ctrl+Shift+A to trigger) ===
+(function() {
+  var alertTriggered = false;
+  var alertResolved = false;
+
+  document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+      e.preventDefault();
+      if (!alertTriggered) {
+        triggerShadowAlert();
+      }
+    }
+  });
+
+  function triggerShadowAlert() {
+    alertTriggered = true;
+    var card = document.getElementById('defenderCard');
+    var pill = document.getElementById('defenderPill');
+    var alerts = document.getElementById('defenderAlerts');
+    var shadow = document.getElementById('defenderShadow');
+    var threat = document.getElementById('defenderThreat');
+    var alertPanel = document.getElementById('shadowAlert');
+    var shadowRow = document.getElementById('shadowAgentRow');
+    var govBadge = document.querySelector('.gov-badge');
+
+    // Animate the Defender card to alert state
+    card.classList.add('defender-alert-active');
+    card.style.animation = 'alertShake 0.5s ease-out';
+    pill.className = 'status-pill pill-red';
+    pill.textContent = '1 Alert';
+    alerts.innerHTML = 'Active alerts: <strong style="color:#D13438;">1</strong>';
+    shadow.innerHTML = 'Shadow AI detected: <strong style="color:#D13438;">1 endpoint</strong>';
+    threat.innerHTML = 'Threat score: <strong style="color:#D13438;">High</strong>';
+
+    // Show the alert detail panel
+    alertPanel.style.display = 'block';
+
+    // Show shadow agent in the registered agents list
+    if (shadowRow) {
+      shadowRow.style.display = 'flex';
+      // Update the agent count
+      var agentTitle = shadowRow.parentElement.querySelector('.cert-section-title');
+      if (agentTitle) agentTitle.textContent = 'Registered Agents (3) + 1 Shadow';
+    }
+
+    // Update the top badge
+    if (govBadge) {
+      govBadge.style.background = '#fde7e9';
+      govBadge.style.color = '#D13438';
+      govBadge.innerHTML = '';
+      govBadge.insertAdjacentHTML('beforeend', '<span style="width:8px;height:8px;background:#D13438;border-radius:50%;display:inline-block;animation:pulse 1s infinite;"></span> 1 Alert -- Shadow AI Detected');
+    }
+
+    // Add timeline entry
+    addTimelineEntry({
+      time: new Date().toISOString().substr(11, 5),
+      action: 'Shadow AI detected -- unauthorized endpoint api.openai.com',
+      user: 'agent (autonomous)',
+      authFlow: 'Agentic',
+      tools: ['Defender', 'Entra Internet Access'],
+      isAlert: true
+    });
+
+    // Wire up the Block button
+    var blockBtn = document.getElementById('blockShadowBtn');
+    if (blockBtn) {
+      blockBtn.addEventListener('click', function() {
+        resolveShadowAlert();
+      });
+    }
+
+    // Wire up the Investigate button -- opens detail in left panel
+    var invBtn = document.getElementById('investigateBtn');
+    if (invBtn) {
+      invBtn.addEventListener('click', function() {
+        // Find the Shadow AI timeline entry and click it to show detail
+        var entries = document.querySelectorAll('.timeline-entry[data-entry]');
+        for (var i = 0; i < entries.length; i++) {
+          try {
+            var d = JSON.parse(entries[i].getAttribute('data-entry'));
+            if (d.isAlert) {
+              entries[i].click();
+              // Scroll left panel into view
+              var leftPanel = document.getElementById('leftPanel');
+              if (leftPanel) leftPanel.scrollIntoView({behavior: 'smooth', block: 'start'});
+              return;
+            }
+          } catch(ex) {}
+        }
+      });
+    }
+  }
+
+  function resolveShadowAlert() {
+    if (alertResolved) return;
+    alertResolved = true;
+    var card = document.getElementById('defenderCard');
+    var pill = document.getElementById('defenderPill');
+    var alerts = document.getElementById('defenderAlerts');
+    var shadow = document.getElementById('defenderShadow');
+    var threat = document.getElementById('defenderThreat');
+    var alertPanel = document.getElementById('shadowAlert');
+    var shadowRow = document.getElementById('shadowAgentRow');
+    var govBadge = document.querySelector('.gov-badge');
+
+    // Resolve animation
+    var btn = document.getElementById('blockShadowBtn');
+    if (btn) {
+      btn.textContent = 'Blocked';
+      btn.style.background = '#107C10';
+      btn.disabled = true;
+    }
+
+    setTimeout(function() {
+      // Fade out alert panel
+      alertPanel.style.transition = 'opacity 0.5s';
+      alertPanel.style.opacity = '0';
+
+      setTimeout(function() {
+        alertPanel.style.display = 'none';
+        alertPanel.style.opacity = '1';
+
+        // Restore Defender card
+        card.classList.remove('defender-alert-active');
+        card.style.animation = '';
+        pill.className = 'status-pill pill-green';
+        pill.textContent = 'Monitoring';
+        alerts.innerHTML = 'Active alerts: <strong style="color:#107C10;">0 (1 resolved)</strong>';
+        shadow.innerHTML = 'Shadow AI detected: <strong style="color:#107C10;">Blocked</strong>';
+        threat.innerHTML = 'Threat score: <strong style="color:#107C10;">Low</strong>';
+
+        // Update shadow agent row to show blocked
+        if (shadowRow) {
+          var badge = shadowRow.querySelector('.agent-type-badge');
+          if (badge) {
+            badge.className = 'agent-type-badge badge-shadow';
+            badge.style.fontSize = '9px';
+            badge.style.padding = '2px 7px';
+            badge.style.textDecoration = 'line-through';
+            badge.innerHTML = '<span class="agent-type-dot dot-shadow"></span> Blocked';
+          }
+        }
+
+        // Restore top badge
+        if (govBadge) {
+          govBadge.style.background = '#dff6dd';
+          govBadge.style.color = '#107C10';
+          govBadge.innerHTML = '';
+          govBadge.insertAdjacentHTML('beforeend', '<span style="width:8px;height:8px;background:#107C10;border-radius:50%;display:inline-block;"></span> All Policies Compliant');
+        }
+
+        // Add resolution timeline entry
+        addTimelineEntry({
+          time: new Date().toISOString().substr(11, 5),
+          action: 'Shadow AI blocked -- endpoint api.openai.com, device isolated, user notified',
+          user: 'jason.admin',
+          authFlow: 'OBO',
+          tools: ['Defender', 'Intune', 'Entra ID'],
+          isResolved: true
+        });
+      }, 500);
+    }, 800);
+  }
+
+  function addTimelineEntry(e) {
+    var timeline = document.querySelector('.timeline-panel .panel-body');
+    if (!timeline) return;
+    var liveDivider = timeline.querySelector('.timeline-date-divider');
+    var authCls = e.authFlow === 'OBO' ? 'auth-obo' : 'auth-agentic';
+    var chips = (e.tools || []).map(function(t) {
+      return '<span class="tool-chip">' + t + '</span>';
+    }).join('');
+    // Build a full entry object for the detail view
+    var now = new Date();
+    var entryData = {
+      id: 'alert-' + Math.random().toString(36).substr(2,6),
+      date: now.toISOString().substr(0, 10),
+      time: e.time,
+      action: e.action,
+      user: e.user,
+      authFlow: e.authFlow,
+      tools: e.tools || [],
+      result: e.isAlert ? 'Alert' : (e.isResolved ? 'Resolved' : 'Success'),
+      policyCompliance: e.isAlert ? 'Violation' : 'Compliant',
+      isAlert: e.isAlert || false,
+      isResolved: e.isResolved || false,
+    };
+    var borderColor = e.isAlert ? '#D13438' : (e.isResolved ? '#107C10' : '');
+    var extraStyle = borderColor ? 'border-left-color:' + borderColor + ' !important;' : '';
+    var div = document.createElement('div');
+    div.className = 'timeline-entry ' + authCls;
+    div.setAttribute('data-entry', JSON.stringify(entryData));
+    div.style.cssText = 'opacity:0; transform:translateY(-8px); transition:opacity 0.4s, transform 0.4s;' + extraStyle;
+    div.innerHTML =
+      '<span class="timeline-ts">' + e.time + '</span>' +
+      '<div class="timeline-content">' +
+        '<div class="timeline-action"' + (e.isAlert ? ' style="color:#D13438;font-weight:600;"' : '') +
+        (e.isResolved ? ' style="color:#107C10;font-weight:600;"' : '') + '>' + e.action + '</div>' +
+        '<div class="timeline-meta">' +
+          '<span class="timeline-user">' + e.user + '</span>' +
+          '<span>' + e.authFlow + '</span>' +
+        '</div>' +
+        '<div class="timeline-tools">' + chips + '</div>' +
+      '</div>' +
+      '<span class="timeline-result"><span class="result-dot" style="background:' + (e.isAlert ? '#D13438' : '#107C10') + ';"></span></span>';
+
+    if (liveDivider && liveDivider.nextSibling) {
+      timeline.insertBefore(div, liveDivider.nextSibling);
+    } else if (liveDivider) {
+      timeline.appendChild(div);
+    } else {
+      timeline.prepend(div);
+    }
+    setTimeout(function() {
+      div.style.opacity = '1';
+      div.style.transform = 'translateY(0)';
+    }, 50);
+  }
+})();
+</script>
+
+</body>
+</html>
+'''
+
+
+@app.route('/governance/activities')
+def governance_activities():
+    """Return live + historical activity entries as JSON for real-time updates."""
+    historical = _governance_get_activity_log()
+    merged = list(_GOVERNANCE_LIVE_LOG) + historical
+    return jsonify({"entries": merged, "live_count": len(_GOVERNANCE_LIVE_LOG)})
+
+
+@app.route('/governance')
+def governance():
+    """Agent 365 Governance Pane -- admin view of the Branch Concierge Agent."""
+    _cfg = DEMO_CONFIG
+    reg = _governance_get_agent_registration()
+    log = _governance_get_activity_log()
+    policy = _governance_get_policy_status()
+    metrics = _governance_get_metrics()
+
+    # Build permissions HTML
+    perm_html = ""
+    for p in reg["permissions"]:
+        perm_html += f"<li>{p}</li>"
+
+    # Build tools HTML
+    tools_html = ""
+    for t in reg["tools"]:
+        tools_html += f'<li><span class="tool-check">&#10003;</span> {t["name"]}</li>'
+
+    # Build certifications HTML
+    cert_html = ""
+    for c in reg["certifications"]:
+        cert_html += f'<div class="cert-badge"><span class="cert-check">&#10003;</span> {c}</div>'
+
+    # Build timeline HTML grouped by date
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    today_str = now.strftime("%Y-%m-%d")
+    yesterday_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    timeline_html = ""
+    current_date = None
+    older_count = 0
+    for entry in log:
+        d = entry["date"]
+        # Date divider
+        if d != current_date:
+            current_date = d
+            if d == today_str:
+                label = "Today -- " + now.strftime("%B %d, %Y")
+            elif d == yesterday_str:
+                label = "Yesterday -- " + (now - timedelta(days=1)).strftime("%B %d, %Y")
+            else:
+                try:
+                    dt = datetime.strptime(d, "%Y-%m-%d")
+                    label = dt.strftime("%B %d, %Y")
+                except ValueError:
+                    label = d
+            timeline_html += f'<div class="timeline-date-divider">{label}</div>'
+
+        auth_cls = "auth-obo" if entry["authFlow"] == "OBO" else "auth-agentic"
+        tools_chips = "".join(f'<span class="tool-chip">{t}</span>' for t in entry["tools"])
+        import html as _html_mod
+        _entry_json = _html_mod.escape(json.dumps(entry))
+        timeline_html += f'''<div class="timeline-entry {auth_cls}" data-entry='{_entry_json}'>
+          <span class="timeline-ts">{entry["time"]}</span>
+          <div class="timeline-content">
+            <div class="timeline-action">{entry["action"]}</div>
+            <div class="timeline-meta">
+              <span class="timeline-user">{entry["user"]}</span>
+              <span>{entry["authFlow"]}</span>
+            </div>
+            <div class="timeline-tools">{tools_chips}</div>
+          </div>
+          <span class="timeline-result"><span class="result-dot result-success"></span></span>
+        </div>'''
+
+    # Append historical summary row
+    timeline_html += '''<div class="timeline-date-divider">Earlier (22 activities)</div>
+    <div class="timeline-entry auth-obo" style="opacity:0.7;">
+      <span class="timeline-ts">...</span>
+      <div class="timeline-content">
+        <div class="timeline-action" style="color:#a19f9d; font-style:italic;">22 earlier activities across 14 days</div>
+        <div class="timeline-meta"><span>14 OBO, 8 Agentic -- all compliant</span></div>
+      </div>
+      <span class="timeline-result"><span class="result-dot result-success"></span></span>
+    </div>'''
+
+    # Build persona switcher buttons for the governance header
+    personas = _cfg.get("personas", [])
+    persona_btns = ""
+    for p in personas:
+        name = p["name"]
+        role = p.get("role", "")
+        if "governance" in p.get("tabs", []):
+            # This is the admin persona -- active on governance page
+            persona_btns += f'<a class="persona-btn active" href="/governance"><span class="persona-dot dot-admin"></span>{name}</a>'
+        else:
+            # Non-admin personas link back to main app
+            persona_btns += f'<a class="persona-btn" href="/"><span class="persona-dot dot-teller"></span>{name}</a>'
+
+    # Header logo
+    _logo_file = _cfg.get("brand_logo", "")
+    if _logo_file:
+        header_logo = f'<img class="bof-header-logo" src="/logos/{_logo_file}" alt="{_cfg.get("brand_company", "")}" style="height:28px;border-radius:4px;" onerror="this.style.display=\'none\'">'
+    else:
+        header_logo = '<div class="bof-header-logo" style="width:28px;height:28px;background:rgba(255,255,255,0.15);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:16px;">B</div>'
+
+    # Brand accent (with light variant for gradient)
+    accent = _cfg.get("brand", {}).get("accent", _cfg.get("brand_accent", "#183D4C"))
+    # Compute a slightly lighter version for gradient end
+    accent_light = accent  # Same color if we can't lighten; the CSS gradient still works
+
+    ca = policy["conditionalAccess"]
+    dlp = policy["dlp"]
+    purview = policy["purview"]
+    defender = policy["defender"]
+
+    page = GOVERNANCE_TEMPLATE \
+        .replace("{{APP_TITLE}}", _cfg.get("app_title", "Branch of the Future")) \
+        .replace("{{APP_SUBTITLE}}", _cfg.get("app_subtitle", "")) \
+        .replace("{{BRAND_ACCENT}}", accent) \
+        .replace("{{BRAND_ACCENT_LIGHT}}", accent_light) \
+        .replace("{{GOV_HEADER_LOGO}}", header_logo) \
+        .replace("{{GOV_PERSONA_BUTTONS}}", persona_btns) \
+        .replace("{{GOV_AGENT_NAME}}", reg["displayName"]) \
+        .replace("{{GOV_AGENT_BRANCH}}", reg.get("branch", "")) \
+        .replace("{{GOV_AGENT_STATUS}}", reg["status"]) \
+        .replace("{{GOV_AGENT_PLATFORM}}", reg["platform"]) \
+        .replace("{{GOV_AGENT_PUBLISHER}}", reg["publisher"]) \
+        .replace("{{GOV_AGENT_OWNER}}", reg["ownerUpn"]) \
+        .replace("{{GOV_AGENT_ENTRA_ID}}", reg["entraAgentId"]) \
+        .replace("{{GOV_AGENT_BLUEPRINT}}", reg["blueprintVersion"]) \
+        .replace("{{GOV_AGENT_DEPLOY}}", reg["deploymentStatus"]) \
+        .replace("{{GOV_PERMISSIONS}}", perm_html) \
+        .replace("{{GOV_TOOLS}}", tools_html) \
+        .replace("{{GOV_CERTIFICATIONS}}", cert_html) \
+        .replace("{{GOV_TIMELINE}}", timeline_html) \
+        .replace("{{GOV_METRIC_ACTIVITIES}}", str(metrics["totalActivities30d"])) \
+        .replace("{{GOV_METRIC_ACTIVITIES_DELTA}}", metrics["totalDelta"]) \
+        .replace("{{GOV_METRIC_SUCCESS}}", metrics["successRate"]) \
+        .replace("{{GOV_METRIC_SUCCESS_DETAIL}}", metrics["successDetail"]) \
+        .replace("{{GOV_METRIC_RESPONSE}}", metrics["avgResponseTime"]) \
+        .replace("{{GOV_METRIC_RESPONSE_DETAIL}}", metrics["responseDetail"]) \
+        .replace("{{GOV_METRIC_VIOLATIONS}}", str(metrics["policyViolations"])) \
+        .replace("{{GOV_METRIC_VIOLATIONS_DETAIL}}", metrics["violationDetail"]) \
+        .replace("{{GOV_METRIC_TOKENS}}", metrics["tokensProcessed"]) \
+        .replace("{{GOV_METRIC_TOKENS_DETAIL}}", metrics["tokensDetail"]) \
+        .replace("{{GOV_METRIC_COST_DETAIL}}", metrics["costDetail"]) \
+        .replace("{{GOV_CA_STATUS}}", ca["status"]) \
+        .replace("{{GOV_CA_LAST}}", ca["lastEvaluated"]) \
+        .replace("{{GOV_CA_DEVICE}}", ca["device"]) \
+        .replace("{{GOV_CA_LOCATION}}", ca["location"]) \
+        .replace("{{GOV_DLP_STATUS}}", dlp["status"]) \
+        .replace("{{GOV_DLP_POLICIES}}", str(dlp["policiesApplied"])) \
+        .replace("{{GOV_DLP_PII}}", "Yes" if dlp["piiRedacted"] else "No") \
+        .replace("{{GOV_DLP_EGRESS}}", dlp["dataEgress"]) \
+        .replace("{{GOV_PURVIEW_STATUS}}", purview["status"]) \
+        .replace("{{GOV_PURVIEW_RETENTION}}", str(purview["retentionDays"])) \
+        .replace("{{GOV_PURVIEW_AUDIT}}", purview["auditLog"]) \
+        .replace("{{GOV_PURVIEW_LABELS}}", purview["labels"]) \
+        .replace("{{GOV_DEFENDER_STATUS}}", defender["status"]) \
+        .replace("{{GOV_DEFENDER_ALERTS}}", str(defender["alerts"])) \
+        .replace("{{GOV_DEFENDER_SHADOW}}", defender["shadowAI"]) \
+        .replace("{{GOV_DEFENDER_THREAT}}", defender["threatScore"])
+
+    return page
+
 
 if __name__ == '__main__':
     import sys

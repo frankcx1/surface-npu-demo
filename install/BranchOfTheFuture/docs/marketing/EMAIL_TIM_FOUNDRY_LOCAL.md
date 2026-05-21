@@ -1,0 +1,48 @@
+# Email to Tim Johnson — Phi Silica Tool Calling on Foundry Local
+
+---
+
+**Subject:** Phi Silica + tool calling on NPU — quick experiment, couple questions
+
+---
+
+Hey Tim,
+
+Been doing some tinkering with Phi Silica on my Surface Laptop 7 and wanted to share what I found. Thought you might know the right people to loop in on the Foundry Local or Phi side.
+
+## What I did
+
+I got Phi Silica doing tool calling — running shell commands, reading/writing files, editing code — all running locally on the NPU through Foundry Local. I wired it into an open source AI agent framework called [OpenClaw](https://github.com/badlogic/pi-mono) (think of it like a local Claude Code or GitHub Copilot CLI). The model runs on-device, offline, zero cost, and it actually works for basic agent tasks.
+
+Here's the fork with the implementation: https://github.com/frankcx1/pi-mono/tree/foundry-local-npu-support
+
+## What I had to work around
+
+Two things required workarounds that ideally wouldn't need them:
+
+**1. Phi Silica has tool calling disabled at the API level**
+
+Foundry Local's model catalog returns `supportsToolCalling: false` for Phi Silica, and the server strips all tool parameters from API requests before they reach the model. To get around this, I built a prompt-engineering shim that injects tool definitions into the system prompt and parses structured `[TOOL_CALL]` markers from the model's text output. It works — the model follows the format reliably — but it's fragile compared to native API support.
+
+**2. Phi-4-mini supports the tool API but doesn't use it**
+
+Phi-4-mini has `supportsToolCalling: true` and accepts tool parameters, but with `tool_choice: "auto"` it never actually selects a tool. It only works when forced with `tool_choice: "required"`, which then requires a synthetic `__text_response` escape-hatch tool so the model can still reply with plain text when no tool is needed.
+
+## The ask
+
+I'm curious whether there's appetite on the Foundry Local or Phi model teams to improve native tool calling support. Specifically:
+
+- **Phi Silica:** Could the `supportsToolCalling` restriction be relaxed, or could tool calling be enabled in a future model update? The 3.8B model can clearly follow tool-calling format instructions — it just needs the API to let the parameters through.
+- **Phi-4-mini:** Is the `tool_choice: "auto"` behavior a known limitation? It seems like a fine-tuning gap where the model was trained with tool calling syntax but not trained to autonomously select tools.
+
+The reason I think this matters: the developer ecosystem is moving toward local AI agents (Claude Code, GitHub Copilot CLI, various open source frameworks). Every Copilot+ PC already has the hardware and Foundry Local installed. If the models supported tool calling natively, it would turn every Copilot+ PC into a platform for local AI agents — no cloud, no API keys, no cost. That feels like a meaningful differentiator.
+
+## Links
+
+- **My fork:** https://github.com/frankcx1/pi-mono/tree/foundry-local-npu-support
+- **Implementation patch:** The main changes are in the OpenAI completions provider — adds `toolsViaPrompt` (Phi Silica) and `forceToolChoice` (Phi-4-mini) compat flags
+- **Original feature request:** https://github.com/badlogic/pi-mono/issues/1178
+
+Happy to jump on a call or connect with whoever owns this on the Foundry Local side. No rush — just thought it was worth sharing since I stumbled into it.
+
+Frank

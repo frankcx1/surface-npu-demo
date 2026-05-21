@@ -1,0 +1,90 @@
+schema_version: 1
+extends: industries/financial-services/verticals/banking.yaml
+brand_id: zava-financial
+display_name: "Zava Financial"
+brand_status: active
+
+brand:
+  primary: "#f7f9fb"
+  primary_end: "#ebeff3"
+  accent: "#183D4C"
+  accent_rgb: "24,61,76"
+  hover: "#9EC9D9"
+  theme: "light"
+  logo: "zava-logo.png"
+  company_name: "Zava Financial"
+
+advisor:
+  name: "Sarah Chen"
+  title: "Vice President & Senior Relationship Manager"
+  company: "Zava Financial"
+  phone: "(415) 555-0142"
+  email: "sarah.chen@zavafinancial.com"
+  organization_unit: "Financial District, San Francisco"
+
+customer:
+  name: "Jackie Rodriguez"
+  full_name: "Jackie Marie Rodriguez"
+  d365_contact_id: ""
+
+concierge:
+  demo_arrivals:
+    - identifier: "demo-jackie-rodriguez-001"
+      name: "Jackie Rodriguez"
+      tier: premier
+      context: "New to area, recently opened checking. Interested in 529 plan and Roth IRA conversion."
+    - identifier: "demo-marcus-chen-001"
+      name: "Marcus Chen"
+      tier: private
+      context: "$12M portfolio, CEO of Chen Capital. Exploring business line of credit."
+    - identifier: "demo-sarah-henderson-001"
+      name: "Sarah Henderson"
+      tier: premier
+      context: "Trust review appointment. Needs managed portfolio discussion."
+
+personas:
+  - name: "Marcus"
+    role: "Branch Manager"
+    tabs: ["auditor", "id"]
+  - name: "Sarah"
+    role: "Relationship Manager"
+    tabs: ["day", "chat", "live", "field"]
+
+branches:
+  - name: "Financial District"
+    city: "San Francisco"
+    state: "CA"
+
+poc:
+  footer: "This application is a proof-of-concept demonstration of on-device AI for branch banking on Copilot+ PCs. Individual features are architectural demonstrations and are not validated for production use."
+  auditor: "PROOF OF CONCEPT -- This is a demonstration of on-device PII detection and compliance pre-screening. It is not a validated compliance tool and should not be used for actual regulatory decisions."
+  id: "PROOF OF CONCEPT -- This is a demonstration of on-device document verification. It is not a validated identity verification system and should not be used for actual identity verification or access control."
+
+economics:
+  cost_per_1k_tokens: 0.01
+  carbon_per_1k_tokens: 0.25
+  device_cost: 1599
+
+demo_script:
+  - {delay: 0,    speaker: "Customer", text: "Hi, I'm Jackie. I called earlier about opening a new account."}
+  - {delay: 3500, speaker: "Advisor",  text: "Welcome, Jackie! I'd be happy to help you get set up. What brings you in today?"}
+  - {delay: 3500, speaker: "Customer", text: "I just moved here from out of state and I need to set up checking and savings."}
+  - {delay: 3000, speaker: "Advisor",  text: "Great, we can definitely get that started. Is it just for you, or a joint account?"}
+  - {delay: 3500, speaker: "Customer", text: "Just me for now. I also have two kids, Maya is eight and Daniel is fifteen."}
+  - {delay: 4000, speaker: "Customer", text: "My husband and I have been talking about saving for their college."}
+  - {delay: 3000, speaker: "Advisor",  text: "That's smart to start planning early. Have you looked into any education savings plans?"}
+  - {delay: 3500, speaker: "Customer", text: "Someone mentioned a 529 plan but I don't really understand how it works."}
+  - {delay: 3000, speaker: "Customer", text: "Is there a limit on how much we can put in each year?"}
+  - {delay: 3500, speaker: "Advisor",  text: "A 529 is a tax-advantaged savings plan. The annual gift tax exclusion is $18,000 per beneficiary."}
+  - {delay: 4000, speaker: "Customer", text: "We're also thinking about retirement. I have an old 401k from my previous job that I never rolled over."}
+  - {delay: 3000, speaker: "Customer", text: "I'm forty-five, so I feel like I'm behind on retirement planning."}
+  - {delay: 3500, speaker: "Advisor",  text: "You're not behind at all. Let's look at your options. Do you know the balance on that 401k?"}
+  - {delay: 3500, speaker: "Customer", text: "What would you recommend, a Roth IRA or a traditional IRA for someone my age?"}
+  - {delay: 4000, speaker: "Customer", text: "And honestly, the fees at my last bank were ridiculous. That's part of why I'm switching."}
+  - {delay: 3000, speaker: "Advisor",  text: "I hear that a lot. Our checking accounts have no monthly fees with direct deposit."}
+  - {delay: 3500, speaker: "Customer", text: "OK that sounds reasonable. Let's go ahead and get the checking set up today."}
+  - {delay: 3000, speaker: "Customer", text: "And I'd like to schedule a follow-up to go deeper on the college savings and retirement options."}
+  - {delay: 3500, speaker: "Advisor",  text: "Absolutely. I'll get the checking started and we can book a follow-up for later this week."}
+
+# Vocabulary, compliance, integrations, tabs, prompts inherited from
+# financial-services/banking -> financial-services industry

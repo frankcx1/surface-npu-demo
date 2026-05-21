@@ -12,6 +12,32 @@ $ErrorActionPreference = 'Continue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # -------------------------------------------------------------------
+# UTF-8 log: Tee-Object in PS 5.1 writes UTF-16 LE by default, which
+# is unreadable in most tools. This wrapper logs in UTF-8 instead.
+# -------------------------------------------------------------------
+$logFile = Join-Path $env:TEMP "botf_setup.log"
+$script:logStream = $null
+try {
+    $script:logStream = [System.IO.StreamWriter]::new($logFile, $true, [System.Text.UTF8Encoding]::new($false))
+    $script:logStream.AutoFlush = $true
+} catch {}
+
+function Log-And-Write {
+    param([string]$Message, [string]$Color = 'White', [switch]$NoNewline)
+    if ($NoNewline) { Write-Host $Message -ForegroundColor $Color -NoNewline }
+    else            { Write-Host $Message -ForegroundColor $Color }
+    if ($script:logStream) {
+        $ts = Get-Date -Format 'HH:mm:ss'
+        $script:logStream.WriteLine("[$ts] $Message")
+    }
+}
+
+# Cleanup log stream on exit
+$null = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
+    if ($script:logStream) { $script:logStream.Close() }
+} -SupportEvent
+
+# -------------------------------------------------------------------
 # Step function: check -> install -> re-check
 # -------------------------------------------------------------------
 $script:stepsPassed = 0
@@ -25,20 +51,20 @@ function Step {
         [scriptblock]$Install
     )
     Write-Host ""
-    Write-Host ">> $Name" -ForegroundColor Yellow -NoNewline
+    Log-And-Write ">> $Name" -Color Yellow -NoNewline
     if (& $Check) {
-        Write-Host " [SKIP - already done]" -ForegroundColor Green
+        Log-And-Write " [SKIP - already done]" -Color Green
         $script:stepsSkipped++
         return $true
     }
     Write-Host ""  # newline after step name
     & $Install
     if (& $Check) {
-        Write-Host "   [OK]" -ForegroundColor Green
+        Log-And-Write "   [OK]" -Color Green
         $script:stepsPassed++
         return $true
     }
-    Write-Host "   [FAIL]" -ForegroundColor Red
+    Log-And-Write "   [FAIL]" -Color Red
     $script:stepsFailed++
     return $false
 }
@@ -118,8 +144,37 @@ Step "Python 3.10+" -Check {
     }
     return $false
 } -Install {
-    Write-Host "   Installing Python 3.11 via winget..." -ForegroundColor Cyan
-    winget install Python.Python.3.11 --accept-source-agreements --accept-package-agreements --scope user 2>&1 | Select-Object -Last 3 | Out-Host
+    # Try winget first, fall back to direct download if it fails
+    $installed = $false
+    Write-Host "   Attempting Python 3.11 install via winget..." -ForegroundColor Cyan
+    try {
+        $wingetResult = winget install Python.Python.3.11 --source winget --accept-source-agreements --accept-package-agreements --scope user 2>&1
+        $wingetResult | Select-Object -Last 3 | Out-Host
+        # Refresh PATH and check
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
+        $script:pythonExe = Find-Python
+        if ($script:pythonExe) { $installed = $true }
+    } catch {}
+
+    if (-not $installed) {
+        Write-Host "   winget failed (common on corp-managed devices). Downloading directly..." -ForegroundColor Yellow
+        $pyUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
+        $pyInstaller = Join-Path $env:TEMP "python-3.11.9-amd64.exe"
+        try {
+            Write-Host "   Downloading Python 3.11.9 from python.org..." -ForegroundColor Cyan
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -Uri $pyUrl -OutFile $pyInstaller -UseBasicParsing
+            Write-Host "   Installing silently (PrependPath=1, InstallAllUsers=1)..." -ForegroundColor Cyan
+            $proc = Start-Process -FilePath $pyInstaller -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1' -Wait -PassThru
+            if ($proc.ExitCode -ne 0) {
+                Write-Host "   [WARN] Installer exited with code $($proc.ExitCode)" -ForegroundColor Yellow
+            }
+            Remove-Item $pyInstaller -Force -ErrorAction SilentlyContinue
+        } catch {
+            Write-Host "   [WARN] Direct download failed: $_" -ForegroundColor Yellow
+        }
+    }
+
     # Refresh PATH
     $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
     # Remove Store stubs if they exist
@@ -155,7 +210,7 @@ Step "Foundry Local CLI" -Check {
     return $false
 } -Install {
     Write-Host "   Installing Foundry Local via winget..." -ForegroundColor Cyan
-    winget install Microsoft.FoundryLocal --accept-source-agreements --accept-package-agreements 2>&1 | Select-Object -Last 3 | Out-Host
+    winget install Microsoft.FoundryLocal --source winget --accept-source-agreements --accept-package-agreements 2>&1 | Select-Object -Last 3 | Out-Host
     $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
 }
 
@@ -188,9 +243,9 @@ Step ".NET 8 runtime (NETCore + AspNetCore)" -Check {
     $hasAsp = $rt -match "Microsoft\.AspNetCore\.App 8\.0\."
     return ($hasBase -and $hasAsp)
 } -Install {
-    Write-Host "   Installing .NET 8 runtimes via winget..." -ForegroundColor Cyan
-    winget install Microsoft.DotNet.Runtime.8 --accept-source-agreements --accept-package-agreements --silent 2>&1 | Out-Null
-    winget install Microsoft.DotNet.AspNetCore.8 --accept-source-agreements --accept-package-agreements --silent 2>&1 | Out-Null
+    Write-Host "   Installing .NET 8 runtimes via winget (may take 1-2 minutes)..." -ForegroundColor Cyan
+    winget install Microsoft.DotNet.Runtime.8 --source winget --accept-source-agreements --accept-package-agreements --silent 2>&1 | Out-Null
+    winget install Microsoft.DotNet.AspNetCore.8 --source winget --accept-source-agreements --accept-package-agreements --silent 2>&1 | Out-Null
 }
 
 # ============================================================
@@ -301,7 +356,7 @@ Step "Vision Service MSIX" -Check {
 
     # Install Windows App Runtime dependency
     try {
-        winget install Microsoft.WindowsAppRuntime.1.8 --accept-source-agreements --accept-package-agreements --silent 2>&1 | Out-Null
+        winget install Microsoft.WindowsAppRuntime.1.8 --source winget --accept-source-agreements --accept-package-agreements --silent 2>&1 | Out-Null
     } catch {
         $runtimeMsix = Join-Path $msixTestDir "Dependencies\x64\Microsoft.WindowsAppRuntime.1.8.msix"
         if (Test-Path $runtimeMsix) {
@@ -329,32 +384,53 @@ Step "Model cache ($modelLabel)" -Check {
     } catch { return $false }
 } -Install {
     Write-Host "   Pre-downloading $modelLabel ($modelAlias) -- ~2-3 GB..." -ForegroundColor Cyan
+    Write-Host "   This step typically takes 5-10 minutes depending on bandwidth." -ForegroundColor Gray
+    Write-Host "   (Safe to stop and restart -- download resumes where it left off)" -ForegroundColor Gray
+    Write-Host ""
     try {
-        foundry service start 2>&1 | Out-Null
+        # Resolve foundry.exe full path so child processes don't depend on PATH
+        $foundryExe = (Get-Command foundry -ErrorAction Stop).Source
+
+        Write-Host "   Starting Foundry Local service..." -ForegroundColor Gray
+        $svcProc = Start-Process -FilePath $foundryExe -ArgumentList "service", "start" `
+            -WindowStyle Hidden -PassThru
+        $svcProc | Wait-Process -Timeout 60 -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
-        $dlScript = @"
-import sys, time
-from foundry_local import FoundryLocalManager
-print('[Foundry] Initializing...', flush=True)
-mgr = FoundryLocalManager('$modelAlias')
-print(f'[Foundry] Endpoint: {mgr.endpoint}', flush=True)
-t0 = time.time()
-try:
-    model_id = mgr.download_model('$modelAlias')
-    print(f'[Foundry] DONE in {time.time()-t0:.0f}s -- model_id: {model_id}', flush=True)
-except Exception as e:
-    print(f'[Foundry] FAIL: {type(e).__name__}: {e}', flush=True)
-    sys.exit(1)
-"@
-        & $pythonExe -u -c $dlScript 2>&1 | ForEach-Object {
-            if ($_ -match "DONE in") { Write-Host "   $_" -ForegroundColor Green }
-            elseif ($_ -match "FAIL:") { Write-Host "   $_" -ForegroundColor Yellow }
-            else { Write-Host "   $_" -ForegroundColor Gray }
+
+        # Launch model download in a separate visible window so its native
+        # progress bar renders there, while we show a spinner here.
+        Write-Host "   Downloading in a separate window (you may see a second console)..." -ForegroundColor Gray
+        $dlProc = Start-Process -FilePath $foundryExe `
+            -ArgumentList "model", "download", $modelAlias `
+            -PassThru
+
+        # Spinner in this window while the download runs
+        $spinChars = @('|', '/', '-', '\')
+        $spinIdx = 0
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        while (-not $dlProc.HasExited) {
+            $elapsed = $sw.Elapsed.ToString("mm\:ss")
+            $spin = $spinChars[$spinIdx % 4]
+            Write-Host "`r   $spin Downloading model... [$elapsed elapsed]   " -ForegroundColor Cyan -NoNewline
+            $spinIdx++
+            Start-Sleep -Seconds 5
         }
-        foundry service stop 2>&1 | Out-Null
+        Write-Host ""
+        $sw.Stop()
+        $totalTime = $sw.Elapsed.ToString("mm\:ss")
+
+        # Verify model is cached
+        $cache = foundry cache ls 2>&1
+        if ($cache -match [regex]::Escape($modelAlias)) {
+            Write-Host "   Download complete ($totalTime)" -ForegroundColor Green
+        } else {
+            Write-Host "   [WARN] Model may not have downloaded completely." -ForegroundColor Yellow
+            Write-Host "   Re-run setup.ps1 to resume, or the app will download on first launch." -ForegroundColor Gray
+        }
     } catch {
+        Write-Host ""
         Write-Host "   [WARN] Model download failed: $_" -ForegroundColor Yellow
-        Write-Host "   The app will download on first launch." -ForegroundColor Gray
+        Write-Host "   Re-run setup.ps1 to retry (download resumes where it left off)." -ForegroundColor Gray
     }
 }
 
@@ -390,6 +466,66 @@ Step "Local state directory ($localStateDir)" -Check {
 }
 
 # ============================================================
+# Step 11: Persist resolved Python path for run.bat
+# ============================================================
+$pythonPathFile = Join-Path $ScriptDir ".python_path.txt"
+
+Step "Persist Python path for run.bat" -Check {
+    if (-not (Test-Path $pythonPathFile)) { return $false }
+    $saved = (Get-Content $pythonPathFile -Raw).Trim()
+    return (Test-Path $saved)
+} -Install {
+    if ($pythonExe) {
+        [System.IO.File]::WriteAllText($pythonPathFile, $pythonExe, [System.Text.UTF8Encoding]::new($false))
+        Write-Host "   Saved Python path: $pythonExe" -ForegroundColor Gray
+    }
+}
+
+# ============================================================
+# Step 12: Desktop shortcut
+# ============================================================
+$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) "Branch of the Future.lnk"
+
+Step "Desktop shortcut" -Check {
+    return (Test-Path $shortcutPath)
+} -Install {
+    # Create a launcher script. The browser is opened by a background watcher
+    # (_browser-launcher.ps1) that waits for Flask to bind port 5000, so users
+    # don't see a "site can't be reached" page during model warmup.
+    $launcherPath = Join-Path $ScriptDir "start-demo.cmd"
+    $launcherContent = @"
+@echo off
+title Branch of the Future
+cd /d "$ScriptDir"
+
+REM Background watcher: waits for Flask to bind port 5000, then opens the browser.
+start "" /b powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0_browser-launcher.ps1"
+
+call "%~dp0run.bat"
+"@
+    [System.IO.File]::WriteAllText($launcherPath, $launcherContent, [System.Text.UTF8Encoding]::new($false))
+
+    # Create the desktop shortcut via WScript.Shell COM.
+    # Do NOT set the RunAsAdmin flag -- the Flask app and Foundry Local both
+    # run per-user, and elevation causes named-pipe IPC isolation that can
+    # stall Foundry SDK calls.
+    try {
+        $ws = New-Object -ComObject WScript.Shell
+        $sc = $ws.CreateShortcut($shortcutPath)
+        $sc.TargetPath = $launcherPath
+        $sc.WorkingDirectory = $ScriptDir
+        $sc.Description = "Launch Branch of the Future (NPU Demo)"
+        $sc.WindowStyle = 1  # Normal window
+        # Use a bank/building icon from Windows system icons
+        $sc.IconLocation = "%SystemRoot%\System32\shell32.dll,145"
+        $sc.Save()
+        Write-Host "   Created: $shortcutPath" -ForegroundColor Gray
+    } catch {
+        Write-Host "   [WARN] Could not create shortcut: $_" -ForegroundColor Yellow
+    }
+}
+
+# ============================================================
 # Summary
 # ============================================================
 Write-Host ""
@@ -419,4 +555,6 @@ if ($script:stepsFailed -gt 0) {
     Write-Host "    python npu_demo_flask.py --demo-mode  (standalone, no tenants needed)" -ForegroundColor Gray
 }
 Write-Host ""
+Log-And-Write "  Log file: $logFile" -Color Gray
+if ($script:logStream) { $script:logStream.Close(); $script:logStream = $null }
 Write-Host "============================================================" -ForegroundColor Cyan

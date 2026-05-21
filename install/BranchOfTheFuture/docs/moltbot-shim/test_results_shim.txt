@@ -1,0 +1,96 @@
+======================================================================
+[TOOL_CALL] Shim Test - phi-4-mini via Foundry Local
+======================================================================
+
+[1] Starting FoundryLocalManager('phi-4-mini')...
+    Model: phi-4-mini-instruct-openvino-npu:2
+    Endpoint: http://127.0.0.1:51422/v1
+
+======================================================================
+TEST: General knowledge (no tool expected)
+  User: When did humans first land on the moon?
+  Expect tool call: False
+======================================================================
+  Time: 2.4s
+  Raw response:
+    'December 25, 1968.'
+  RESULT: PASS - got plain text as expected
+
+======================================================================
+TEST: List directory (expect exec tool)
+  User: List the files in C:\Users\frankbu\Documents\Demo
+  Expect tool call: True
+======================================================================
+  Time: 3.9s
+  Raw response:
+    '[TOOL_CALL]\n{"name": "exec", "arguments": {"command": "Get-ChildItem C:\\\\Users\\\\frankbu\\\\Documents\\\\Demo\\\\*"}}\n[/TOOL_CALL]'
+  PARSED tool call: {
+    "name": "exec",
+    "arguments": {
+        "command": "Get-ChildItem C:\\Users\\frankbu\\Documents\\Demo\\*"
+    }
+}
+  RESULT: PASS - got expected tool call
+
+======================================================================
+TEST: Read file (expect read tool)
+  User: Read the file C:\Users\frankbu\Documents\Demo\My_Day\tasks.csv
+  Expect tool call: True
+======================================================================
+  Time: 4.0s
+  Raw response:
+    '[TOOL_CALL]\n{"name": "read", "arguments": {"path": "C:\\\\Users\\\\frankbu\\\\Documents\\\\Demo\\\\My_Day\\\\tasks.csv"}}\n[/TOOL_CALL]'
+  PARSED tool call: {
+    "name": "read",
+    "arguments": {
+        "path": "C:\\Users\\frankbu\\Documents\\Demo\\My_Day\\tasks.csv"
+    }
+}
+  RESULT: PASS - got expected tool call
+
+======================================================================
+TEST: Write file (expect write tool)
+  User: Save a file called notes.txt in C:\Users\frankbu\Documents\Demo with content: Meeting at 2pm Friday
+  Expect tool call: True
+======================================================================
+  Time: 4.4s
+  Raw response:
+    '[TOOL_CALL]\n{"name": "write", "arguments": {"path": "C:\\\\Users\\\\frankbu\\\\Documents\\\\Demo\\\\notes.txt", "content": "Meeting at 2pm Friday"}}\n[/TOOL_CALL]'
+  PARSED tool call: {
+    "name": "write",
+    "arguments": {
+        "path": "C:\\Users\\frankbu\\Documents\\Demo\\notes.txt",
+        "content": "Meeting at 2pm Friday"
+    }
+}
+  RESULT: PASS - got expected tool call
+
+======================================================================
+TEST: Run command (expect exec tool)
+  User: Run Get-Date in PowerShell
+  Expect tool call: True
+======================================================================
+  Time: 3.0s
+  Raw response:
+    '[TOOL_CALL]\n{"name": "exec", "arguments": {"command": "Get-Date"}}\n[/TOOL_CALL]'
+  PARSED tool call: {
+    "name": "exec",
+    "arguments": {
+        "command": "Get-Date"
+    }
+}
+  RESULT: PASS - got expected tool call
+
+======================================================================
+SUMMARY
+======================================================================
+  [PASS] General knowledge (no tool expected)          tool=(none)     2.4s
+  [PASS] List directory (expect exec tool)             tool=exec       3.9s
+  [PASS] Read file (expect read tool)                  tool=read       4.0s
+  [PASS] Write file (expect write tool)                tool=write      4.4s
+  [PASS] Run command (expect exec tool)                tool=exec       3.0s
+
+  5 passed, 0 failed out of 5 tests
+
+  phi-4-mini follows the [TOOL_CALL] shim perfectly.
+  Safe to migrate: just swap client init + model name, keep the shim.

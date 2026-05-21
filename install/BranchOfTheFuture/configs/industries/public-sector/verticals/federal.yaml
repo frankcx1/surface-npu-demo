@@ -1,0 +1,26 @@
+# federal.yaml -- Public Sector > Federal vertical
+# Extends: ../industry.yaml
+# Status: stub -- all overrides are placeholders, not yet authored.
+
+schema_version: 1
+
+extends: industries/public-sector/industry.yaml
+vertical_id: federal
+display_name: "Federal Government"
+status: stub
+
+# ---------------------------------------------------------------------------
+# Vocabulary overrides
+# ---------------------------------------------------------------------------
+vocabulary:
+  organization: "post"
+
+# ---------------------------------------------------------------------------
+# Compliance -- adds ITAR and CJIS to base regimes (FedRAMP, FISMA)
+# ---------------------------------------------------------------------------
+compliance:
+  regimes:
+    - FedRAMP
+    - FISMA
+    - ITAR
+    - CJIS

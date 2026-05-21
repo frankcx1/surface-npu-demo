@@ -1,0 +1,113 @@
+======================================================================
+Token Limit Test - phi-4-mini via Foundry Local (NPU)
+======================================================================
+
+[1] Starting FoundryLocalManager('phi-4-mini')...
+    Model: phi-4-mini-instruct-openvino-npu:2
+    Endpoint: http://127.0.0.1:51422/v1
+
+======================================================================
+TEST A: Max output tokens
+  Sending same short prompt with increasing max_tokens values
+======================================================================
+
+  max_tokens=128:
+    OK - 9.9s, finish_reason=stop, 106 words, 685 chars
+    (Model finished naturally)
+
+  max_tokens=256:
+    OK - 17.3s, finish_reason=stop, 200 words, 1353 chars
+    (Model finished naturally)
+
+  max_tokens=512:
+    OK - 33.7s, finish_reason=stop, 393 words, 2627 chars
+    (Model finished naturally)
+
+  max_tokens=800:
+    OK - 52.0s, finish_reason=stop, 602 words, 4037 chars
+    (Model finished naturally)
+
+  max_tokens=1024:
+    OK - 66.4s, finish_reason=stop, 787 words, 5303 chars
+    (Model finished naturally)
+
+  max_tokens=1500:
+    OK - 70.6s, finish_reason=stop, 846 words, 5700 chars
+    (Model finished naturally)
+
+  max_tokens=2048:
+    FAILED after 0.0s - Error code: 400 - {'type': 'https://tools.ietf.org/html/rfc9110#section-15.5.1', 'title': 'msg', 'status': 400, 'detail': "'max_tokens' is too large: 2048. This model supports at most 1536 completion tokens, whereas you set 2048. (Parameter 'chatRequest')"}
+
+  max_tokens=3000:
+    FAILED after 0.0s - Error code: 400 - {'type': 'https://tools.ietf.org/html/rfc9110#section-15.5.1', 'title': 'msg', 'status': 400, 'detail': "'max_tokens' is too large: 3000. This model supports at most 1536 completion tokens, whereas you set 3000. (Parameter 'chatRequest')"}
+
+  max_tokens=4096:
+    FAILED after 0.0s - Error code: 400 - {'type': 'https://tools.ietf.org/html/rfc9110#section-15.5.1', 'title': 'msg', 'status': 400, 'detail': "'max_tokens' is too large: 4096. This model supports at most 1536 completion tokens, whereas you set 4096. (Parameter 'chatRequest')"}
+
+======================================================================
+TEST B: Input prompt size limits
+  Sending increasingly large prompts to find the breaking point
+======================================================================
+
+  ~500 chars (~125 tokens estimated):
+    OK - 2.7s, finish_reason=stop, response: 20 words
+    Preview: A quick brown fox repeatedly jumps over a lazy dog near a river bank. This scene is repeated multiple times....
+
+  ~1000 chars (~255 tokens estimated):
+    OK - 2.7s, finish_reason=stop, response: 20 words
+    Preview: A quick brown fox repeatedly jumps over a lazy dog near a river bank. This scene is repeated multiple times....
+
+  ~2000 chars (~498 tokens estimated):
+    OK - 2.9s, finish_reason=stop, response: 23 words
+    Preview: A quick brown fox repeatedly jumps over a lazy dog near a river bank. This action is consistently depicted in a repetitive manner....
+
+  ~3000 chars (~758 tokens estimated):
+    OK - 3.3s, finish_reason=stop, response: 28 words
+    Preview: A quick brown fox repeatedly jumps over a lazy dog near a river bank. This action is repeated multiple times, emphasizing the fox's agility and the do...
+
+  ~4000 chars (~1002 tokens estimated):
+    OK - 2.9s, finish_reason=stop, response: 23 words
+    Preview: A quick brown fox repeatedly jumps over a lazy dog near a river bank. This action is repeated multiple times in the text....
+
+  ~6000 chars (~1506 tokens estimated):
+    FAILED after 1.5s - Error code: 500 - {'type': 'https://tools.ietf.org/html/rfc9110#section-15.6.1', 'title': 'Failed to handle openAI completion', 'status': 500, 'detail': 'Non-zero status code returned while running Op
+
+  ~8000 chars (~2010 tokens estimated):
+    FAILED after 0.0s - Error code: 400 - {'type': 'https://tools.ietf.org/html/rfc9110#section-15.5.1', 'title': 'msg', 'status': 400, 'detail': "Your input message is too large. This model supports at most 1536 completion 
+
+  ~12000 chars (~3001 tokens estimated):
+    FAILED after 0.0s - Error code: 400 - {'type': 'https://tools.ietf.org/html/rfc9110#section-15.5.1', 'title': 'msg', 'status': 400, 'detail': "Your input message is too large. This model supports at most 1536 completion 
+
+  ~16000 chars (~4008 tokens estimated):
+    FAILED after 0.0s - Error code: 400 - {'type': 'https://tools.ietf.org/html/rfc9110#section-15.5.1', 'title': 'msg', 'status': 400, 'detail': "Your input message is too large. This model supports at most 1536 completion 
+
+======================================================================
+TEST C: Combined input+output budget
+  Medium input + varying output to find the total context ceiling
+======================================================================
+
+  ~2K input + max_tokens=256:
+    OK - 17.4s, finish_reason=stop, 209 words, 1294 chars
+
+  ~2K input + max_tokens=512:
+    OK - 29.2s, finish_reason=stop, 353 words, 2267 chars
+
+  ~2K input + max_tokens=1024:
+    OK - 29.0s, finish_reason=stop, 353 words, 2267 chars
+
+  ~2K input + max_tokens=2048:
+    FAILED after 0.0s - Error code: 400 - {'type': 'https://tools.ietf.org/html/rfc9110#section-15.5.1', 'title': 'msg', 'status': 400, 'detail': "'max_tokens' is too large: 2048. This model supports at most 1536 completion 
+
+  ~2K input + max_tokens=3072:
+    FAILED after 0.0s - Error code: 400 - {'type': 'https://tools.ietf.org/html/rfc9110#section-15.5.1', 'title': 'msg', 'status': 400, 'detail': "'max_tokens' is too large: 3072. This model supports at most 1536 completion 
+
+======================================================================
+SUMMARY
+======================================================================
+
+Review the results above to determine:
+1. What is the max useful max_tokens value? (Test A)
+2. What is the max input prompt size before errors? (Test B)
+3. What is the total context window (input+output)? (Test C)
+4. At what point does quality degrade even if no error?
+

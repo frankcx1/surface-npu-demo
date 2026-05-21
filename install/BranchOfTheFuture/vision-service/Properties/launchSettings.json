@@ -1,0 +1,17 @@
+{
+  "profiles": {
+    "MsixPackage": {
+      "commandName": "MsixPackage",
+      "nativeDebugging": false
+    },
+    "vision-service": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5100",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

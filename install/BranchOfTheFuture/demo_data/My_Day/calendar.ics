@@ -1,0 +1,62 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Flagstar Bank//Branch of the Future//EN
+BEGIN:VEVENT
+DTSTART:20260327T090000
+DTEND:20260327T093000
+SUMMARY:Team Huddle -- Branch Operations
+LOCATION:Troy Branch -- Break Room
+DESCRIPTION:Daily morning standup with branch staff.\n\nAGENDA:\n1. Yesterday's highlights (3 new account openings)\n2. Today's appointment schedule\n3. Compliance reminder: new BSA/AML procedures effective this week\n4. Jackie Rodriguez follow-up (referred by existing member C-20198)\n\nNOTE: Regional manager visiting Friday -- make sure branch is audit-ready.
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20260327T100000
+DTEND:20260327T103000
+SUMMARY:Portfolio Review -- Henderson Family
+LOCATION:Troy Branch -- Conference Room A
+ORGANIZER;CN=Thomas Henderson:mailto:t.henderson@email.com
+DESCRIPTION:Quarterly portfolio review with Tom and Maria Henderson.\n\nACCOUNT SUMMARY:\n- Joint checking: ****7823 ($12,450)\n- Savings: ****7824 ($45,200)\n- IRA (Tom): ****9901 ($182,000)\n- IRA (Maria): ****9902 ($156,000)\n- 529 Plan (Dylan, age 12): ****5501 ($67,800)\n\nDISCUSSION POINTS:\n1. Tom asking about Roth conversion -- income may qualify this year\n2. Maria wants to increase 529 contributions for Dylan\n3. Estate planning referral -- they mentioned updating their will\n4. CD maturation next month -- $25,000 at 3.8%, discuss renewal rate\n\nPREP: Pull latest IRA performance report from D365.
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20260327T110000
+DTEND:20260327T113000
+SUMMARY:Compliance Training Webinar
+LOCATION:Virtual (Teams)
+DESCRIPTION:Mandatory quarterly compliance training.\n\nTOPIC: Updated KYC/CDD procedures for high-risk accounts.\n\nNOTE: Must complete before Friday or branch gets flagged. Certificate of completion auto-sent to regional.
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20260327T120000
+DTEND:20260327T130000
+SUMMARY:Lunch
+LOCATION:Break
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20260327T140000
+DTEND:20260327T150000
+SUMMARY:New Client Meeting -- Jackie Rodriguez
+LOCATION:Troy Branch -- Conference Room A
+ORGANIZER;CN=Jackie Rodriguez:mailto:jackie.rodriguez@email.com
+DESCRIPTION:Initial consultation with Jackie Rodriguez (new client, referred by existing member).\n\nBACKGROUND:\n- Recently relocated from out of state\n- Interested in Essential Checking + 529 College Savings Plan\n- Two children: Maya (8) and Daniel (15)\n- Has old 401k from previous employer to discuss\n- Husband may join later for joint account discussion\n\nPRODUCTS TO DISCUSS:\n1. Essential Checking (no minimum, no monthly fee with direct deposit)\n2. 529 Plan for Maya (2026 contribution limit: $18,000/beneficiary)\n3. Roth IRA conversion from old 401k\n4. High-Yield Savings for emergency fund\n\nPREP: Pull 529 contribution limits sheet. Have account application ready.\nID VERIFICATION: Will need valid photo ID for new account opening.\n\nREFERRAL NOTE: Referred by member C-20198. Log referral credit in D365.
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20260327T153000
+DTEND:20260327T160000
+SUMMARY:Call -- Regional Manager Update
+LOCATION:Virtual (Teams)
+ORGANIZER;CN=Patricia Wells:mailto:p.wells@flagstar.com
+DESCRIPTION:Weekly check-in with Patricia Wells (Regional Manager).\n\nTOPICS:\n1. Branch performance metrics (YTD: 87 new accounts, target 100)\n2. Surface Pro deployment update -- 7 units received, 7 more pending\n3. AI demo feedback from executive visit\n4. Staffing: need one more part-time teller for summer\n\nPREP: Have branch numbers ready from D365 dashboard.
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20260327T163000
+DTEND:20260327T170000
+SUMMARY:End of Day -- CRM Notes & Follow-ups
+LOCATION:Troy Branch -- Desk
+DESCRIPTION:Daily wrap-up: enter meeting notes into D365, queue follow-up tasks.\n\nTODO:\n- Log Jackie Rodriguez meeting notes and next steps\n- Update Henderson portfolio review in CRM\n- Send 529 contribution limits to Jackie via secure email\n- Schedule Jackie follow-up for next Thursday\n- Review tomorrow's appointment calendar
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR

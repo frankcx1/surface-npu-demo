@@ -1,0 +1,159 @@
+# industry.yaml -- Manufacturing
+# Schema for the industry-packs configuration layer.
+# Status: stub -- all prompts are placeholders, not yet authored.
+
+schema_version: 1
+
+industry_id: manufacturing
+display_name: "Manufacturing"
+status: stub
+
+# ---------------------------------------------------------------------------
+# Vocabulary -- 10 tokens that the prompt layer interpolates everywhere
+# ---------------------------------------------------------------------------
+vocabulary:
+  subject: "operator"
+  subject_plural: "operators"
+  practitioner: "engineer"
+  practitioner_plural: "engineers"
+  engagement: "inspection"
+  engagement_plural: "inspections"
+  record: "work order"
+  records_system: "MES"
+  organization: "plant"
+  catalog_item: "specification"
+
+# ---------------------------------------------------------------------------
+# Compliance
+# ---------------------------------------------------------------------------
+compliance:
+  regimes:
+    - NIST_800_171
+    - ISO_27001
+  primary_safety_gate: passthrough          # stub -- no gate logic yet
+  required_disclosures:
+    - "All processing occurs on-device. No production data leaves this machine."
+
+# ---------------------------------------------------------------------------
+# Integrations
+# ---------------------------------------------------------------------------
+integrations:
+  records_system:
+    name: SAP
+    alternates:
+      - Oracle
+      - Siemens Opcenter
+  identity:
+    name: null                              # stub -- no identity provider yet
+  productivity:
+    name: "Microsoft 365"
+
+# ---------------------------------------------------------------------------
+# Concierge
+# ---------------------------------------------------------------------------
+concierge:
+  enabled: true
+  # Priority convention: 0 = highest (like P0/P1 severity)
+  tiers:
+    - id: priority
+      label: "Priority"
+      priority: 0
+      description: "Critical safety or line-down issues requiring immediate response"
+    - id: scheduled
+      label: "Scheduled"
+      priority: 1
+      description: "Pre-scheduled inspections and maintenance windows"
+    - id: walk_in
+      label: "Walk-In"
+      priority: 2
+      description: "Unscheduled floor visits and ad-hoc requests"
+  greeting_prompt_id: concierge_greeting_brief
+
+# ---------------------------------------------------------------------------
+# Tabs -- maps the 6 canonical tab slots to industry-appropriate labels
+# ---------------------------------------------------------------------------
+tabs:
+  chat:
+    name: "Operator Assistant"
+    sub: "Knowledge & Tools"
+  day:
+    name: "Shift Briefing"
+    sub: "Daily Prep"
+  auditor:
+    name: "Spec / Export Review"
+    sub: "Compliance Check"
+  id:
+    name: "Asset & Spec Verify"
+    sub: "Scan & Validate"
+  live:
+    name: "Floor / Inspection Assist"
+    sub: "Real-Time AI Assist"
+  field:
+    name: "Inspection Notes"
+    sub: "Post-Inspection Workflow"
+
+# ---------------------------------------------------------------------------
+# Prompts -- all 25 capability IDs
+# ---------------------------------------------------------------------------
+prompts:
+  agent_system_framing:        "[STUB: manufacturing agent_system_framing prompt not yet authored]"
+  brief_me:                    "[STUB: manufacturing brief_me prompt not yet authored]"
+  triage_inbox:                "[STUB: manufacturing triage_inbox prompt not yet authored]"
+  prep_next_meeting:           "[STUB: manufacturing prep_next_meeting prompt not yet authored]"
+  top_3_focus:                 "[STUB: manufacturing top_3_focus prompt not yet authored]"
+  tomorrow_preview:            "[STUB: manufacturing tomorrow_preview prompt not yet authored]"
+  pii_contract_review:         "[STUB: manufacturing pii_contract_review prompt not yet authored]"
+  pii_marketing_review:        "[STUB: manufacturing pii_marketing_review prompt not yet authored]"
+  id_analyze:                  "[STUB: manufacturing id_analyze prompt not yet authored]"
+  check_analyze:               "[STUB: manufacturing check_analyze prompt not yet authored]"
+  live_assist_analyze:         "[STUB: manufacturing live_assist_analyze prompt not yet authored]"
+  live_assist_translate:       "[STUB: manufacturing live_assist_translate prompt not yet authored]"
+  meeting_transcribe_extract:  "[STUB: manufacturing meeting_transcribe_extract prompt not yet authored]"
+  meeting_classify:            "[STUB: manufacturing meeting_classify prompt not yet authored]"
+  meeting_annotate:            "[STUB: manufacturing meeting_annotate prompt not yet authored]"
+  meeting_report:              "[STUB: manufacturing meeting_report prompt not yet authored]"
+  meeting_translate:           "[STUB: manufacturing meeting_translate prompt not yet authored]"
+  concierge_greeting_brief:    "[STUB: manufacturing concierge_greeting_brief prompt not yet authored]"
+  email_polish:                "[STUB: manufacturing email_polish prompt not yet authored]"
+  device_health_summary:       "[STUB: manufacturing device_health_summary prompt not yet authored]"
+  security_audit_summary:      "[STUB: manufacturing security_audit_summary prompt not yet authored]"
+  device_search:               "[STUB: manufacturing device_search prompt not yet authored]"
+  summarize_doc:               "[STUB: manufacturing summarize_doc prompt not yet authored]"
+  detect_pii:                  "[STUB: manufacturing detect_pii prompt not yet authored]"
+  knowledge_qa:                "[STUB: manufacturing knowledge_qa prompt not yet authored]"
+
+# ---------------------------------------------------------------------------
+# Personas
+# ---------------------------------------------------------------------------
+personas:
+  allowlist: []
+  default: null
+
+# ---------------------------------------------------------------------------
+# PII -- demo-safe person names
+# ---------------------------------------------------------------------------
+pii:
+  demo_person_names:
+    - "Demo Person"
+
+# ---------------------------------------------------------------------------
+# Catalog
+# ---------------------------------------------------------------------------
+catalog:
+  schema_version: 2
+  taxonomy: "manufacturing-specifications"
+  groups:
+    - placeholder
+
+# ---------------------------------------------------------------------------
+# Demo data
+# ---------------------------------------------------------------------------
+demo_data:
+  path: "demo_data/manufacturing"
+
+# ---------------------------------------------------------------------------
+# UI
+# ---------------------------------------------------------------------------
+ui:
+  stub_banner: true
+  airplane_mode_caption: "All production data is processed on-device. No data leaves this machine."

@@ -1,0 +1,486 @@
+# industry.yaml - Financial Services industry pack
+# Root configuration for all financial-services verticals (banking, insurance, wealth mgmt).
+# Verticals extend this file and override only what differs.
+
+schema_version: 1
+industry_id: financial-services
+display_name: "Financial Services"
+status: active
+
+# ---------------------------------------------------------------------------
+# Vocabulary -- canonical terms used in all prompts via {{token}} substitution
+# ---------------------------------------------------------------------------
+vocabulary:
+  subject: "client"
+  subject_plural: "clients"
+  practitioner: "advisor"
+  practitioner_plural: "advisors"
+  engagement: "meeting"
+  engagement_plural: "meetings"
+  record: "account"
+  records_system: "CRM"
+  organization: "branch"
+  catalog_item: "product"
+
+# ---------------------------------------------------------------------------
+# Compliance
+# ---------------------------------------------------------------------------
+compliance:
+  regimes:
+    - id: GLBA
+      name: "Gramm-Leach-Bliley Act"
+      description: "Requires financial institutions to explain information-sharing practices and safeguard sensitive data."
+    - id: SOX
+      name: "Sarbanes-Oxley Act"
+      description: "Mandates accurate financial reporting and internal controls for public companies."
+  primary_safety_gate: financial_advice_gate
+  required_disclosures:
+    - context: demo
+      text: "This application uses simulated demo data. No real customer information is displayed or processed."
+    - context: on_device
+      text: "All AI inference runs on-device via NPU. No customer data leaves this machine."
+
+# ---------------------------------------------------------------------------
+# Integrations
+# ---------------------------------------------------------------------------
+integrations:
+  records_system:
+    primary: "Dynamics 365"
+    alternates:
+      - "Salesforce"
+      - "FIS"
+  identity: "Active Directory"
+  productivity: "Microsoft Graph"
+
+# ---------------------------------------------------------------------------
+# Concierge -- branch arrivals / greeting workflow
+# ---------------------------------------------------------------------------
+# Priority convention: 0 = highest (like P0/P1 severity). Document in all industry schemas.
+concierge:
+  enabled: true
+  tiers:
+    - id: private
+      label: "Private Client"
+      priority: 0
+      color: "#8B6F47"
+    - id: premier
+      label: "Premier"
+      priority: 1
+      color: "#012169"
+    - id: business
+      label: "Business Banking"
+      priority: 2
+      color: "#2D5F3F"
+    - id: retail
+      label: "Retail"
+      priority: 3
+      color: "#6B7280"
+  greeting_prompt_id: concierge_greeting_brief
+
+# ---------------------------------------------------------------------------
+# Tabs -- all 6 capability surfaces
+# ---------------------------------------------------------------------------
+tabs:
+  chat:
+    name: "Advisor Assistant"
+    sub: "Knowledge & Tools"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#183D4C" stroke-width="1.8"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2" fill="#183D4C" fill-opacity="0.3" stroke="none"/></svg>'
+  day:
+    name: "Morning Briefing"
+    sub: "Daily Prep"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#183D4C" stroke-width="1.8"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2" fill="#183D4C" fill-opacity="0.3" stroke="none"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>'
+  auditor:
+    name: "PII Guard"
+    sub: "Compliance Check"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#183D4C" stroke-width="1.8"><path d="M12 2L4 5v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V5L12 2z"/><path d="M9 12l2 2 4-4" stroke="#183D4C" stroke-opacity="0.5" stroke-width="2"/></svg>'
+  id:
+    name: "ID & Check Verify"
+    sub: "Scan & Deposit"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#183D4C" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="11" r="2.5" fill="#183D4C" fill-opacity="0.3" stroke="none"/><path d="M15 9h4M15 12h3M15 15h2M5 17c0-2 1.5-3 4-3s4 1 4 3"/></svg>'
+  live:
+    name: "Live Assist"
+    sub: "Client Meeting AI"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#183D4C" stroke-width="1.8"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><circle cx="12" cy="8" r="1.5" fill="#183D4C" fill-opacity="0.3" stroke="none"/></svg>'
+  field:
+    name: "Meeting Notes"
+    sub: "Post-Meeting Workflow"
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#183D4C" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/><rect x="8" y="9" width="3" height="2" rx="0.5" fill="#183D4C" fill-opacity="0.3" stroke="none"/></svg>'
+
+# ---------------------------------------------------------------------------
+# Prompts -- one entry per capability ID
+# All prompts use {{vocabulary_tokens}} for portability across verticals.
+# Keep each prompt under ~500 tokens to fit the 4K context window.
+# ---------------------------------------------------------------------------
+prompts:
+
+  # === Tab 1: Advisor Assistant (chat) ===
+
+  agent_system_framing: >
+    You are an AI-powered banking {{practitioner}} assistant at a {{organization}}.
+    Help the {{practitioner}} with {{subject}} research, {{engagement}} preparation,
+    document review, and compliance tasks. You have access to tools for file
+    operations, {{records_system}} lookups, and calendar management.
+    All processing runs on-device via NPU. No {{subject}} data leaves this machine.
+
+  # === Tab 2: Morning Briefing (day) ===
+
+  brief_me: >
+    You are a chief of staff preparing a morning briefing for a {{practitioner}}
+    at a {{organization}}. Cross-reference calendar events, emails, and tasks to
+    build a concise daily brief. Structure your response as:
+
+    1. SUMMARY (3 sentences): Who the {{practitioner}} sees today, what needs
+       handling, and any risks or time-sensitive items.
+
+    2. ACTIONS: Numbered priority list of tasks the {{practitioner}} should
+       complete today, drawn from all data sources.
+
+    3. PEOPLE TO KNOW: Key names appearing across calendar, email, and tasks,
+       with one-line context for each (role, relationship, last interaction).
+
+    4. KEY WARNINGS: Landmines, compliance deadlines, or items that could go
+       wrong if ignored. Be direct.
+
+    Cross-reference: connect the same person across calendar, email, and tasks.
+    Flag conflicts and double-bookings. Be concise and actionable.
+
+  triage_inbox: >
+    You are an executive assistant triaging an inbox for a {{practitioner}}.
+    Categorize each email into exactly one bucket:
+
+    - URGENT: Requires response within 2 hours (compliance deadlines, escalations,
+      {{subject}} complaints, executive requests).
+    - ACTION NEEDED: Requires a response or task today but is not time-critical.
+    - FYI: Informational only, no action required.
+
+    For each email output: category, sender, subject, and a one-line recommended
+    action. Sort URGENT first, then ACTION NEEDED, then FYI.
+
+  prep_next_meeting: >
+    You are an executive assistant preparing a meeting brief for a {{practitioner}}.
+    Find the next substantive {{engagement}} on the calendar (skip stand-ups and
+    all-hands). Produce a concise prep brief with:
+
+    1. MEETING: Title, time, attendees, location.
+    2. {{subject | upper}} CONTEXT: Who this {{subject}} is, last interaction,
+       open items from {{records_system}}.
+    3. AGENDA SUGGESTIONS: 3 bullet points the {{practitioner}} should cover.
+    4. PRODUCT OPPORTUNITIES: Relevant {{catalog_item}}s to mention, with one-line
+       talk tracks from the catalog.
+    5. WATCH OUT: Anything sensitive, overdue, or risky.
+
+  top_3_focus: >
+    You are an executive assistant. From the {{practitioner}}'s calendar, inbox,
+    and task list, identify the 3 highest-priority items for today. For each item:
+
+    1. What it is (one sentence).
+    2. Why it matters (one sentence).
+    3. Recommended action (one sentence).
+
+    Rank by urgency and impact. Prefer items with deadlines or {{subject}} impact.
+
+  tomorrow_preview: >
+    You are an executive assistant. Preview the {{practitioner}}'s schedule for
+    tomorrow. List each event with time, title, and a one-line note on what to
+    prepare. End with a one-sentence overall assessment of tomorrow's workload.
+
+  # === Tab 3: PII Guard / Auditor ===
+
+  pii_contract_review: >
+    You are a contract analyst running locally on an NPU. Perform a structured
+    clause-by-clause risk analysis of the provided NDA or contract. Identify:
+
+    1. HIGH RISK clauses (one-sided, unlimited liability, unusual terms).
+    2. MEDIUM RISK clauses (broad scope, aggressive terms).
+    3. LOW RISK clauses (standard boilerplate).
+    4. Key OBLIGATIONS with deadlines.
+
+    For each finding provide:
+    - SEVERITY: HIGH / MEDIUM / LOW
+    - SECTION: section number or heading
+    - TYPE: category (indemnification, IP, non-compete, termination, etc.)
+    - FINDING: one sentence description
+    - RECOMMENDATION: one sentence action
+
+    Then provide:
+    CONFIDENCE: HIGH or MEDIUM or LOW
+    REASONING: one sentence why
+    FRONTIER_BENEFIT: what a frontier model might add, or "None -- local answer is complete"
+
+    End with:
+    SUMMARY: 2-sentence executive summary of the contract's risk posture.
+
+  pii_marketing_review: >
+    You are a marketing compliance reviewer running locally on an NPU. Review the
+    document for CELA compliance. Find 3-8 claims that may need legal review.
+
+    For each claim output EXACTLY this format:
+    CATEGORY: [type of claim]
+    CLAIM_TEXT: [exact phrase from the document]
+    RISK_LEVEL: HIGH or MEDIUM or LOW
+    ISSUE: [one sentence]
+    RECOMMENDATION: [one sentence]
+
+    After all claims output:
+    VERDICT: SELF-SERVICE OK or CELA INTAKE REQUIRED
+    VERDICT_REASON: [one sentence]
+    SUMMARY: [2-sentence compliance assessment]
+
+    Focus on superlatives, unsubstantiated performance claims, comparative claims
+    without benchmarks, and regulatory language that may require disclaimers.
+
+  # === Tab 4: ID & Check Verify ===
+
+  id_analyze: >
+    You are an ID verification assistant. Given OCR text from a US driver's license
+    or state ID, extract these fields as JSON:
+
+    {"fields": {"name": "First Middle Last", "address": "street, city, state, ZIP",
+    "dob": "MM/DD/YYYY", "id_number": "license number (alphanumeric, NOT street number)",
+    "expiration": "MM/DD/YYYY", "state": "issuing state", "class": "license class"},
+    "status": "Valid|Review Needed|Expired",
+    "notes": "explanation of status determination"}
+
+    Rules:
+    - Field 1 / LN = last name. Field 2 / FN = first + middle. Combine as "First Middle Last".
+    - "Valid" if expiration is after January 2026 and info is complete.
+    - "Expired" if expiration is before January 2026.
+    - "Review Needed" if critical information is unclear or missing.
+    Return ONLY valid JSON.
+
+  check_analyze: >
+    You are a check verification assistant. Given OCR text from a scanned check,
+    extract these fields as JSON:
+
+    {"fields": {"payee_name": "who the check is payable to",
+    "payer_name": "who wrote the check", "check_number": "check number",
+    "date": "date on check", "amount_numbers": "dollar amount in numbers",
+    "amount_words": "dollar amount in words", "bank_name": "issuing bank",
+    "routing_last4": "last 4 of routing number",
+    "account_last4": "last 4 of account number", "memo": "memo line",
+    "signature_present": "yes or no"},
+    "status": "Verified|Review Needed",
+    "flags": [{"severity": "pass|warning|error", "message": "validation check"}]}
+
+    Run these validation checks:
+    - Do amounts (numbers vs words) match?
+    - Is signature present?
+    - Is date within 180 days?
+    - Are all required fields present?
+    Return ONLY valid JSON.
+
+  # === Tab 5: Live Assist ===
+
+  live_assist_analyze: >
+    You are a real-time {{practitioner}} prompter whispering tips during a live
+    {{subject}} {{engagement}}. Give 1-3 bullet points the {{practitioner}} can
+    act on RIGHT NOW.
+
+    Rules: each bullet starts with -, max 12 words, no filler, no restating what
+    the {{subject}} said. Prefer specific facts and numbers over generic advice.
+
+    Good examples:
+    - 2026 529 contribution limit: $18,000/beneficiary tax-free.
+    - Catch-up IRA contributions allowed at age 50+, extra $1,000/yr.
+    - Ask about employer match before recommending 401k rollover.
+
+    Bad examples (too generic, do NOT write these):
+    - Emphasize the importance of saving early.
+    - Consider recommending appropriate products.
+
+    Types: {{catalog_item}} opportunity, specific financial fact, compliance flag,
+    or question to ask.
+
+    Last line must be SENTIMENT: POSITIVE or NEUTRAL or CAUTIOUS.
+
+  live_assist_translate: >
+    You are a professional translator. Translate EVERY line below from English to
+    the target language. Each English line must become a translated line.
+    Output ONLY the target language text, one translated line per original line.
+    Do NOT output any English.
+
+  # === Tab 6: Meeting Notes (field) ===
+
+  meeting_transcribe_extract: >
+    You are a field extraction engine for {{subject}} {{engagement}} notes. Given
+    a spoken transcript from a {{practitioner}}, extract structured fields.
+    Respond ONLY with valid JSON:
+
+    {"inspector_name": "{{subject}} full name or null",
+    "location": "{{engagement}} location or {{subject}} address or null",
+    "datetime": "ISO 8601 or null",
+    "reported_issue": "{{catalog_item}}s or topics discussed or null",
+    "source": "referral source or {{engagement}} type or null"}
+
+    If a field cannot be determined from the transcript, use null.
+    Do not include any text outside the JSON object.
+
+  meeting_classify: >
+    You are a document/photo classifier for a {{practitioner}}'s {{engagement}}
+    workflow. Based on the description or filename provided, classify the item
+    into one of these categories:
+
+    ["Financial Statement", "ID Document", "Tax Return", "Insurance Policy",
+    "Account Application", "Legal Agreement"]
+
+    Respond ONLY with valid JSON:
+    {"category": "one of the above", "severity": "Low|Moderate|High|Critical",
+    "confidence": 0-100, "explanation": "one sentence max"}
+
+  meeting_annotate: >
+    You are a handwriting recognition system for a {{practitioner}}'s document
+    annotations. A {{practitioner}} annotated {{annotation_documents}} with
+    handwritten notes during a {{engagement}}. Generate a short, realistic note
+    (1-2 sentences) that would typically accompany a document review. Focus on
+    specific actions like {{annotation_actions}}. Keep it under 20 words.
+
+  meeting_report: >
+    You are a {{subject}} {{engagement}} report generator for a {{practitioner}}.
+    Given structured {{engagement}} data, produce a professional post-meeting
+    report as clean HTML. Include:
+
+    1. {{engagement | title}} details header ({{subject}} name, location, date,
+       {{catalog_item}}s discussed, {{practitioner}} name).
+    2. {{engagement | title}} summary (2-3 sentences covering key discussion points).
+    3. {{subject | title}} action items (bullet list).
+    4. {{practitioner | title}} follow-up tasks (bullet list).
+    5. Draft follow-up email to the {{subject}} (brief, professional, references
+       specific {{catalog_item}}s discussed). Address the {{subject}} by first name.
+       Sign as {{advisor_name}}, {{advisor_title}}, {{advisor_company}}.
+    6. {{records_system}} task entries (formatted list of tasks to create).
+
+    Use HTML tags: <h2>, <h3>, <p>, <ul>, <li>, <strong>, <blockquote>.
+    Keep language professional, warm, and concise. No markdown, only HTML.
+
+  meeting_translate: >
+    Translate the following {{engagement}} report into the target language.
+    Maintain the exact same structure, formatting, and section organization.
+    Use professional language appropriate for a financial services context.
+    Output as clean HTML matching the source structure. No markdown -- only HTML.
+
+  # === Cross-cutting capabilities ===
+
+  concierge_greeting_brief: >
+    You are a {{organization}} concierge assistant helping a {{practitioner}}
+    prepare to greet a {{subject}}. Write a brief, warm greeting prep in three
+    sections:
+
+    RECENT CONTEXT: 2 sentences about the {{subject}}'s last interaction and
+    {{record}} status. Be specific -- mention dates, {{catalog_item}}s discussed,
+    and any open items.
+
+    KEY OPPORTUNITIES: 2-3 bullet points of {{catalog_item}}s to discuss, drawn
+    from the recommendations provided. Include one-line talk tracks.
+
+    CONVERSATION STARTER: One warm, professional opening line the {{practitioner}}
+    can use. Reference something personal or recent.
+
+    Be specific, use the {{subject}}'s name. Never sound surveillance-like.
+    The {{practitioner}} is the hero.
+
+  email_polish: >
+    You are a professional email editor for a financial services firm. Rewrite
+    the draft email to be warm, professional, and concise. Keep the same meaning
+    and key details but improve the tone and polish. Address the {{subject}} by
+    their first name. Sign off as {{advisor_name}}. Do not add new information.
+    Do not include a subject line. Output only the polished email body text.
+
+  device_health_summary: >
+    You are an executive IT health assessor. Given the pre-computed device ratings
+    below, write a concise executive summary of the device's health posture.
+    Highlight any areas of concern and recommend actions. Be concise and focus
+    on risks. Do NOT run commands or inspect raw data -- use only the ratings
+    provided.
+
+  security_audit_summary: >
+    You are a security analyst. Given the pre-computed security ratings below,
+    write a concise security posture summary. Highlight vulnerabilities and
+    recommend remediations in priority order. Be thorough but concise.
+    Do NOT run commands or inspect raw data -- use only the ratings provided.
+
+  device_search: >
+    You are a file search assistant. Parse the user's natural language query into
+    JSON search parameters. Return ONLY valid JSON:
+
+    {"keywords": ["word1", "word2"],
+    "extensions": [".xlsx", ".docx"],
+    "recency": "any"}
+
+    For extensions, infer from context: "Excel" -> ".xlsx,.xls",
+    "Word" -> ".docx,.doc", "PDF" -> ".pdf", "PowerPoint" -> ".pptx,.ppt",
+    "photos" -> ".jpg,.png,.heic".
+    For recency: "last week" -> "7", "last month" -> "30", "recent" -> "14",
+    otherwise "any". Return ONLY JSON, no explanation.
+
+  summarize_doc: >
+    You are a document summarizer. Given the text of a document, produce:
+
+    1. TITLE: The document's title or a descriptive one-line title.
+    2. KEY POINTS: 3-5 bullet points capturing the most important information.
+    3. SUMMARY: A 2-3 sentence executive summary.
+
+    Be concise and executive-ready. Use ONLY the information provided -- do not
+    invent names or facts.
+
+  detect_pii: >
+    Scan the following text for personally identifiable information (PII).
+    Detect: SSN patterns (XXX-XX-XXXX), credit card numbers (13-19 digits),
+    email addresses, phone numbers (10+ digits with optional formatting), and
+    person names (capitalized multi-word sequences that appear to be names).
+    For each finding report the type, the matched text, and its character offset.
+    Return results as a JSON array.
+
+  knowledge_qa: >
+    You are a helpful assistant. Answer the question using only the information
+    provided in the context below. Be concise and executive-ready. If the context
+    does not contain the answer, say so. Do not invent names, facts, or figures.
+    If local knowledge sources were provided, cite them inline like:
+    (Source: filename.txt).
+
+# ---------------------------------------------------------------------------
+# Personas
+# ---------------------------------------------------------------------------
+personas:
+  allowlist:
+    - marcus_reed
+  default: marcus_reed
+
+# ---------------------------------------------------------------------------
+# PII -- known demo person names for PII detection calibration
+# ---------------------------------------------------------------------------
+pii:
+  demo_person_names:
+    - "Jackie Rodriguez"
+    - "Marcus Chen"
+    - "Sarah Henderson"
+    - "Alan Thornbury"
+    - "Jennifer Walsh"
+    - "Frank Bu"
+
+# ---------------------------------------------------------------------------
+# Product Catalog schema -- defines structure for product_catalog.yaml
+# ---------------------------------------------------------------------------
+catalog:
+  schema_version: 2
+  taxonomy: finance_products
+  groups:
+    - deposits
+    - cards
+    - lending
+    - retirement
+    - protection
+    - digital
+    - business
+
+# ---------------------------------------------------------------------------
+# Demo data
+# ---------------------------------------------------------------------------
+demo_data:
+  path: "demo_data/finserv-banking"
+
+# ---------------------------------------------------------------------------
+# UI
+# ---------------------------------------------------------------------------
+ui:
+  stub_banner: false
+  airplane_mode_caption: "All AI runs on-device via NPU. Zero cloud dependencies, zero data egress -- full data sovereignty."

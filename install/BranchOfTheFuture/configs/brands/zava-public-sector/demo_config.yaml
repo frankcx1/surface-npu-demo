@@ -1,0 +1,28 @@
+schema_version: 1
+extends: industries/public-sector/verticals/federal.yaml
+brand_id: zava-public-sector
+display_name: "Zava Public Sector"
+brand_status: stub
+
+brand:
+  primary: "#f7f9fb"
+  primary_end: "#ebeff3"
+  accent: "#1A3A5C"
+  accent_rgb: "26,58,92"
+  hover: "#4A90D9"
+  theme: "light"
+  logo: "zava-logo.png"
+  company_name: "Zava Federal Services"
+
+advisor:
+  name: "Placeholder Analyst"
+  title: "Program Analyst"
+  company: "Zava Federal Services"
+  phone: "(555) 000-0000"
+  email: "analyst@zavafed.example"
+  organization_unit: "Mission Support"
+
+customer:
+  name: "Demo Constituent"
+  full_name: "Demo J. Constituent"
+  identifier: ""

@@ -1,0 +1,28 @@
+schema_version: 1
+extends: industries/retail/industry.yaml
+brand_id: zava-retail
+display_name: "Zava Retail"
+brand_status: stub
+
+brand:
+  primary: "#f7f9fb"
+  primary_end: "#ebeff3"
+  accent: "#D4451A"
+  accent_rgb: "212,69,26"
+  hover: "#FF6B35"
+  theme: "light"
+  logo: "zava-logo.png"
+  company_name: "Zava Retail"
+
+advisor:
+  name: "Placeholder Associate"
+  title: "Senior Sales Associate"
+  company: "Zava Retail"
+  phone: "(555) 000-0000"
+  email: "associate@zavaretail.example"
+  organization_unit: "Flagship Store"
+
+customer:
+  name: "Demo Customer"
+  full_name: "Demo J. Customer"
+  identifier: ""

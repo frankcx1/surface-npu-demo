@@ -1,0 +1,25 @@
+# k12.yaml -- Education > K-12 vertical
+# Extends: ../industry.yaml
+# Status: stub -- all overrides are placeholders, not yet authored.
+
+schema_version: 1
+
+extends: industries/education/industry.yaml
+vertical_id: k12
+display_name: "K-12 Education"
+status: stub
+
+# ---------------------------------------------------------------------------
+# Vocabulary overrides
+# ---------------------------------------------------------------------------
+vocabulary:
+  subject: "student"                        # K-12 context (minors -- heightened protections)
+  organization: "school"
+
+# ---------------------------------------------------------------------------
+# Compliance -- adds COPPA to base regimes (FERPA)
+# ---------------------------------------------------------------------------
+compliance:
+  regimes:
+    - FERPA
+    - COPPA

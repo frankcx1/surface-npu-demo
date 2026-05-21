@@ -1,0 +1,158 @@
+# industry.yaml -- Retail
+# Schema for the industry-packs configuration layer.
+# Status: stub -- all prompts are placeholders, not yet authored.
+
+schema_version: 1
+
+industry_id: retail
+display_name: "Retail"
+status: stub
+
+# ---------------------------------------------------------------------------
+# Vocabulary -- 10 tokens that the prompt layer interpolates everywhere
+# ---------------------------------------------------------------------------
+vocabulary:
+  subject: "customer"
+  subject_plural: "customers"
+  practitioner: "associate"
+  practitioner_plural: "associates"
+  engagement: "transaction"
+  engagement_plural: "transactions"
+  record: "order"
+  records_system: "POS"
+  organization: "store"
+  catalog_item: "SKU"
+
+# ---------------------------------------------------------------------------
+# Compliance
+# ---------------------------------------------------------------------------
+compliance:
+  regimes:
+    - PCI_DSS
+  primary_safety_gate: passthrough          # stub -- no gate logic yet
+  required_disclosures:
+    - "All processing occurs on-device. No customer data leaves this machine."
+
+# ---------------------------------------------------------------------------
+# Integrations
+# ---------------------------------------------------------------------------
+integrations:
+  records_system:
+    name: Shopify
+    alternates:
+      - Oracle Retail
+      - SAP
+  identity:
+    name: null                              # stub -- no identity provider yet
+  productivity:
+    name: "Microsoft 365"
+
+# ---------------------------------------------------------------------------
+# Concierge
+# ---------------------------------------------------------------------------
+concierge:
+  enabled: true
+  # Priority convention: 0 = highest (like P0/P1 severity)
+  tiers:
+    - id: vip
+      label: "VIP"
+      priority: 0
+      description: "High-value customers with concierge-level service"
+    - id: loyalty
+      label: "Loyalty Member"
+      priority: 1
+      description: "Enrolled loyalty program members"
+    - id: walk_in
+      label: "Walk-In"
+      priority: 2
+      description: "General foot traffic and new visitors"
+  greeting_prompt_id: concierge_greeting_brief
+
+# ---------------------------------------------------------------------------
+# Tabs -- maps the 6 canonical tab slots to industry-appropriate labels
+# ---------------------------------------------------------------------------
+tabs:
+  chat:
+    name: "Associate Assistant"
+    sub: "Knowledge & Tools"
+  day:
+    name: "Shift Briefing"
+    sub: "Daily Prep"
+  auditor:
+    name: "Cardholder Data Guard"
+    sub: "Compliance Check"
+  id:
+    name: "Returns & Age Verify"
+    sub: "Scan & Validate"
+  live:
+    name: "Clienteling Assist"
+    sub: "Real-Time AI Assist"
+  field:
+    name: "Visit Notes"
+    sub: "Post-Visit Workflow"
+
+# ---------------------------------------------------------------------------
+# Prompts -- all 25 capability IDs
+# ---------------------------------------------------------------------------
+prompts:
+  agent_system_framing:        "[STUB: retail agent_system_framing prompt not yet authored]"
+  brief_me:                    "[STUB: retail brief_me prompt not yet authored]"
+  triage_inbox:                "[STUB: retail triage_inbox prompt not yet authored]"
+  prep_next_meeting:           "[STUB: retail prep_next_meeting prompt not yet authored]"
+  top_3_focus:                 "[STUB: retail top_3_focus prompt not yet authored]"
+  tomorrow_preview:            "[STUB: retail tomorrow_preview prompt not yet authored]"
+  pii_contract_review:         "[STUB: retail pii_contract_review prompt not yet authored]"
+  pii_marketing_review:        "[STUB: retail pii_marketing_review prompt not yet authored]"
+  id_analyze:                  "[STUB: retail id_analyze prompt not yet authored]"
+  check_analyze:               "[STUB: retail check_analyze prompt not yet authored]"
+  live_assist_analyze:         "[STUB: retail live_assist_analyze prompt not yet authored]"
+  live_assist_translate:       "[STUB: retail live_assist_translate prompt not yet authored]"
+  meeting_transcribe_extract:  "[STUB: retail meeting_transcribe_extract prompt not yet authored]"
+  meeting_classify:            "[STUB: retail meeting_classify prompt not yet authored]"
+  meeting_annotate:            "[STUB: retail meeting_annotate prompt not yet authored]"
+  meeting_report:              "[STUB: retail meeting_report prompt not yet authored]"
+  meeting_translate:           "[STUB: retail meeting_translate prompt not yet authored]"
+  concierge_greeting_brief:    "[STUB: retail concierge_greeting_brief prompt not yet authored]"
+  email_polish:                "[STUB: retail email_polish prompt not yet authored]"
+  device_health_summary:       "[STUB: retail device_health_summary prompt not yet authored]"
+  security_audit_summary:      "[STUB: retail security_audit_summary prompt not yet authored]"
+  device_search:               "[STUB: retail device_search prompt not yet authored]"
+  summarize_doc:               "[STUB: retail summarize_doc prompt not yet authored]"
+  detect_pii:                  "[STUB: retail detect_pii prompt not yet authored]"
+  knowledge_qa:                "[STUB: retail knowledge_qa prompt not yet authored]"
+
+# ---------------------------------------------------------------------------
+# Personas
+# ---------------------------------------------------------------------------
+personas:
+  allowlist: []
+  default: null
+
+# ---------------------------------------------------------------------------
+# PII -- demo-safe person names
+# ---------------------------------------------------------------------------
+pii:
+  demo_person_names:
+    - "Demo Person"
+
+# ---------------------------------------------------------------------------
+# Catalog
+# ---------------------------------------------------------------------------
+catalog:
+  schema_version: 2
+  taxonomy: "retail-skus"
+  groups:
+    - placeholder
+
+# ---------------------------------------------------------------------------
+# Demo data
+# ---------------------------------------------------------------------------
+demo_data:
+  path: "demo_data/retail"
+
+# ---------------------------------------------------------------------------
+# UI
+# ---------------------------------------------------------------------------
+ui:
+  stub_banner: true
+  airplane_mode_caption: "All customer data is processed on-device. No data leaves this machine."

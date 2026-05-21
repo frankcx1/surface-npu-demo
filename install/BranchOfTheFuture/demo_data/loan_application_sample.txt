@@ -1,0 +1,128 @@
+ACME FINANCIAL SERVICES
+New Account Application - CONFIDENTIAL
+
+Date: January 15, 2026
+Application ID: APP-2026-00847
+
+================================================================================
+SECTION 1: APPLICANT INFORMATION
+================================================================================
+
+Full Legal Name: Sarah Elizabeth Morrison
+Date of Birth: March 14, 1985
+Social Security Number: 482-73-9156
+Driver's License: WA-MORRISON850314-XK7
+
+Current Address:
+  4521 Westlake Avenue North, Apt 12B
+  Seattle, WA 98109-2847
+
+Previous Address (if less than 2 years at current):
+  892 Pine Street, Unit 305
+  Bellevue, WA 98004
+
+Contact Information:
+  Primary Phone: (206) 555-0847
+  Mobile Phone: (425) 555-1923
+  Email: sarah.morrison@gmail.com
+  Work Email: smorrison@techcorp.com
+
+================================================================================
+SECTION 2: EMPLOYMENT INFORMATION
+================================================================================
+
+Current Employer: TechCorp Solutions Inc.
+Position: Senior Software Engineer
+Annual Salary: $185,000
+Employee ID: EMP-78432
+Start Date: June 1, 2021
+
+Supervisor: Michael Chen
+Supervisor Phone: (206) 555-3847
+HR Contact: hr@techcorp.com
+
+================================================================================
+SECTION 3: FINANCIAL INFORMATION
+================================================================================
+
+Primary Bank: First National Bank
+Account Number: 7834921056
+Routing Number: 125000024
+Account Type: Checking
+
+Secondary Account:
+Bank: Chase Bank
+Account Number: 4521-8847-2293
+Type: Savings
+
+Credit Card (for identity verification):
+Card Type: Visa
+Card Number: 4532-8891-2234-5567
+Expiration: 09/2028
+CVV: 847
+
+Monthly Income: $15,416.67
+Monthly Expenses: $8,200.00
+Outstanding Debts: $42,500 (auto loan)
+
+================================================================================
+SECTION 4: REFERENCE CONTACTS
+================================================================================
+
+Personal Reference 1:
+  Name: Jennifer Walsh
+  Relationship: Sister
+  Phone: (360) 555-7721
+  Email: jwalsh@outlook.com
+  Address: 1205 Oak Street, Tacoma, WA 98402
+
+Personal Reference 2:
+  Name: David Park
+  Relationship: Former Colleague
+  Phone: (425) 555-8834
+  Email: david.park@innovate.io
+
+================================================================================
+SECTION 5: DECLARATIONS
+================================================================================
+
+Emergency Contact:
+  Name: Robert Morrison (Father)
+  Phone: (509) 555-2941
+  Relationship: Parent
+
+Medical Information (for insurance purposes):
+  Primary Physician: Dr. Amanda Foster
+  Physician Phone: (206) 555-4420
+  Insurance Provider: Blue Cross Blue Shield
+  Policy Number: BCB-WA-78459321
+  Known Conditions: None
+
+================================================================================
+AUTHORIZATION
+================================================================================
+
+I, Sarah Elizabeth Morrison, hereby authorize ACME Financial Services to verify
+all information provided in this application. I understand that my Social 
+Security Number (482-73-9156) and financial information will be used for 
+credit verification purposes.
+
+Signature: Sarah E. Morrison
+Date: January 15, 2026
+
+IP Address at submission: 73.153.247.89
+Device ID: A7F3-B892-C4E1-D056
+
+================================================================================
+INTERNAL USE ONLY
+================================================================================
+
+Processed by: Agent #4472 (James Wilson)
+Agent Phone: (206) 555-9900 ext. 447
+Branch: Seattle Downtown - Branch #0089
+Approval Status: PENDING REVIEW
+
+Notes: Applicant passport number (US Passport: 547821963) verified against 
+federal database. Credit score: 742. Recommend approval for premium tier.
+
+================================================================================

@@ -1,0 +1,58 @@
+CONFIDENTIAL — BOARD EYES ONLY
+Enterprise AI Strategy 2026
+Prepared for Board of Directors
+
+EXECUTIVE SUMMARY
+
+The company is at an inflection point. AI adoption across our industry is accelerating, and our competitors are moving aggressively. This document outlines our recommended strategy for 2026, balancing innovation velocity with governance and risk management.
+
+KEY STRATEGIC PRIORITIES
+
+1. On-Device AI Deployment
+   - Migrate sensitive data workflows from cloud AI to local NPU-based processing
+   - Target verticals: healthcare (HIPAA), legal (privilege), financial services (SOX)
+   - Eliminate per-query API costs for high-volume document analysis
+   - Timeline: Q2 2026 pilot, Q3 2026 enterprise rollout
+
+2. AI Governance Framework
+   - Establish Chief AI Officer role reporting to CEO
+   - Implement mandatory AI audit trails for all automated decisions
+   - Create AI Ethics Review Board with quarterly reporting cadence
+   - Develop employee AI usage policy covering data handling, tool selection, and escalation
+
+3. Data Sovereignty Initiative
+   - All customer PII processing must occur on-device or in sovereign cloud regions
+   - No customer data may transit through third-party AI APIs without explicit consent
+   - Implement data classification system: Public / Internal / Confidential / Restricted
+   - Board-level quarterly review of data flow compliance
+
+4. Workforce Augmentation (Not Replacement)
+   - Deploy AI assistants as "digital interns" — supervised, auditable, task-specific
+   - Invest in upskilling programs for employees to work alongside AI tools
+   - Establish clear boundaries: AI recommends, humans decide
+   - Track productivity metrics but do not tie to performance reviews in Year 1
+
+RISK FACTORS
+
+- Model capability gaps in current generation (3-4B parameter local models)
+- Regulatory uncertainty around AI-generated content in regulated industries
+- Employee resistance if AI deployment perceived as headcount reduction tool
+- Vendor lock-in risk with cloud AI providers (OpenAI, Anthropic, Google)
+- Board liability exposure for AI-automated decisions without human oversight
+
+FINANCIAL PROJECTIONS
+
+- Year 1 investment: $2.4M (hardware refresh, software licensing, training)
+- Year 1 savings: $800K (reduced cloud AI API costs, document processing automation)
+- Break-even: Q2 2027
+- Year 2 projected ROI: 340% (based on full deployment across 3 verticals)
+
+RECOMMENDATION
+
+Approve the On-Device AI Pilot Program for Q2 2026. Begin with legal document review and financial compliance workflows where data sensitivity is highest and the on-device value proposition is most compelling.
+
+The hardware is ready. The runtime is proven. The only question is whether we move now or let competitors establish the standard.
+
+Prepared by: Strategy & Innovation Team
+Classification: CONFIDENTIAL
+Distribution: Board of Directors only

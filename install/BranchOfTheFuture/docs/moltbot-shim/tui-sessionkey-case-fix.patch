@@ -1,0 +1,13 @@
+--- C:\Users\frankbu\AppData\Local\Temp\claude\C--vibe-moltbot-npu\ee6fef62-09c4-4d25-ae5b-fee861a6e4c8\scratchpad\package\dist\tui\tui-event-handlers.js	1985-10-26 01:15:00.000000000 -0700
++++ C:\Users\frankbu\AppData\Roaming\npm\node_modules\openclaw\dist\tui\tui-event-handlers.js	2026-02-02 07:25:29.502355300 -0800
+@@ -53,7 +53,9 @@
+         }
+         const evt = payload;
+         syncSessionKey();
+-        if (evt.sessionKey !== state.currentSessionKey) {
++        // Case-insensitive comparison: the gateway normalizes session keys
++        // to lowercase, but the TUI preserves the original mixed-case name.
++        if (evt.sessionKey?.toLowerCase() !== state.currentSessionKey?.toLowerCase()) {
+             return;
+         }
+         if (finalizedRuns.has(evt.runId)) {

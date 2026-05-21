@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Platform>x64</Platform>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <!-- MSIX packaging required for LAF token + systemAIModels capability -->
+    <!-- PFN: Microsoft.NPUDemo.VisionService_r0xr04974zwaa -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Prevent VS from overriding MaxVersionTested in manifest -->
+    <AppxOSMinVersionReplaceManifestVersion>false</AppxOSMinVersionReplaceManifestVersion>
+    <AppxOSMaxVersionTestedReplaceManifestVersion>false</AppxOSMaxVersionTestedReplaceManifestVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260209005" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,18 @@
+# higher-ed.yaml -- Education > Higher Education vertical
+# Extends: ../industry.yaml
+# Status: stub -- all overrides are placeholders, not yet authored.
+
+schema_version: 1
+
+extends: industries/education/industry.yaml
+vertical_id: higher-ed
+display_name: "Higher Education"
+status: stub
+
+# ---------------------------------------------------------------------------
+# Compliance -- adds GLBA (financial aid) to base regimes (FERPA)
+# ---------------------------------------------------------------------------
+compliance:
+  regimes:
+    - FERPA
+    - GLBA

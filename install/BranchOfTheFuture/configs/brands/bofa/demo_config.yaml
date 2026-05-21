@@ -1,0 +1,43 @@
+schema_version: 1
+extends: brands/zava-financial/demo_config.yaml
+brand_id: bofa
+display_name: "Bank of America"
+brand_status: active
+
+brand:
+  primary: "#012169"
+  primary_end: "#001a4d"
+  accent: "#012169"
+  accent_rgb: "1,33,105"
+  hover: "#E31837"
+  theme: "light"
+  logo: "bofa-logo.png"
+  company_name: "Bank of America"
+
+advisor:
+  name: "Michael Torres"
+  title: "Vice President & Senior Relationship Manager"
+  company: "Bank of America"
+  phone: "(704) 555-0198"
+  email: "michael.torres@bofa.com"
+  organization_unit: "Midtown Financial Center, New York"
+
+customer:
+  name: "Jackie Rodriguez"
+  full_name: "Jackie Marie Rodriguez"
+  d365_contact_id: ""
+
+personas:
+  - name: "Michael"
+    role: "Branch Manager"
+    tabs: ["auditor", "id"]
+  - name: "Jennifer"
+    role: "Relationship Manager"
+    tabs: ["day", "chat", "live", "field"]
+
+branches:
+  - name: "Midtown Financial Center"
+    city: "New York"
+    state: "NY"
+
+# Everything else inherited from zava-financial -> financial-services/banking -> financial-services
