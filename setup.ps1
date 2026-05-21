@@ -516,8 +516,10 @@ call "%~dp0run.bat"
         $sc.WorkingDirectory = $ScriptDir
         $sc.Description = "Launch Branch of the Future (NPU Demo)"
         $sc.WindowStyle = 1  # Normal window
-        # Use a bank/building icon from Windows system icons
-        $sc.IconLocation = "%SystemRoot%\System32\shell32.dll,145"
+        $icoPath = Join-Path $ScriptDir "favicon.ico"
+        if (Test-Path $icoPath) {
+            $sc.IconLocation = "$icoPath,0"
+        }
         $sc.Save()
         Write-Host "   Created: $shortcutPath" -ForegroundColor Gray
     } catch {
