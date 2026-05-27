@@ -1147,32 +1147,85 @@ else:
     MODEL_ALIAS = "phi-4-mini"
     MODEL_LABEL = "Phi-4 Mini"
 
-# --- Model initialization via Foundry Local SDK (NPU → GPU → localhost:5272 fallback) ---
+# --- Elevation check (RunAsAdmin breaks Foundry named-pipe IPC) ---
+try:
+    import ctypes as _ctypes
+    if _ctypes.windll.shell32.IsUserAnAdmin():
+        print("=" * 70, flush=True)
+        print("  WARNING: Running as Administrator!", flush=True)
+        print("  Foundry Local uses per-user named pipes. Elevation causes IPC", flush=True)
+        print("  isolation that stalls model calls (especially consecutive ones", flush=True)
+        print("  like Prep Next Client).", flush=True)
+        print("  FIX: Right-click desktop shortcut > Properties > Advanced >", flush=True)
+        print("       uncheck 'Run as administrator', then relaunch.", flush=True)
+        print("=" * 70, flush=True)
+except Exception:
+    pass  # Non-Windows or ctypes unavailable — skip check
+
+# --- Model initialization via Foundry Local SDK (NPU -> GPU -> SDK-default) ---
 print(f"Starting Foundry Local runtime (model: {MODEL_ALIAS})...", flush=True)
 FOUNDRY_AVAILABLE = False
-try:
+MODEL_ID = None
+manager = None
+
+def _load_foundry(alias, device=None):
+    """Init FoundryLocalManager for alias, optionally pinned to a device. Returns (manager, model_id)."""
     from foundry_local import FoundryLocalManager
-    manager = FoundryLocalManager(MODEL_ALIAS)
-    MODEL_ID = manager.get_model_info(MODEL_ALIAS).id
-    client = OpenAI(base_url=manager.endpoint, api_key=manager.api_key)
-    DEFAULT_MODEL = MODEL_ID
-    FOUNDRY_AVAILABLE = True
-except Exception as _npu_err:
-    # NPU variant may fail on some devices (e.g. Lunar Lake driver issue) — try GPU
-    try:
-        from foundry_local.api import DeviceType
-        manager = FoundryLocalManager(MODEL_ALIAS, device=DeviceType.GPU)
-        # get_model_info returns NPU ID even with GPU device — use list_loaded_models instead
-        _loaded = manager.list_loaded_models()
-        MODEL_ID = _loaded[0].id if _loaded else manager.get_model_info(MODEL_ALIAS).id
-        client = OpenAI(base_url=manager.endpoint, api_key=manager.api_key)
-        DEFAULT_MODEL = MODEL_ID
-        FOUNDRY_AVAILABLE = True
-        print(f"  NPU unavailable ({_npu_err}), using GPU variant", flush=True)
-    except Exception:
-        manager = None
-        client = OpenAI(base_url="http://localhost:5272/v1", api_key="not-needed")
-        DEFAULT_MODEL = MODEL_ALIAS
+    mgr = FoundryLocalManager(alias, device=device) if device is not None else FoundryLocalManager(alias)
+    # Prefer the actually-loaded variant over alias-resolved (alias may resolve to NPU even on GPU device)
+    _loaded = mgr.list_loaded_models()
+    return mgr, (_loaded[0].id if _loaded else mgr.get_model_info(alias).id)
+
+try:
+    from foundry_local.api import DeviceType
+    import time as _t_init
+    # Explicit device preference order: NPU -> GPU -> whatever SDK picks.
+    # Each device gets up to 3 attempts with 1s backoff to ride out transient blips
+    # (Foundry service still settling, mid-restart, brief contention with another caller).
+    _device_order = (("NPU", DeviceType.NPU), ("GPU", DeviceType.GPU), ("default", None))
+    for _label, _device in _device_order:
+        for _try in range(3):
+            try:
+                manager, MODEL_ID = _load_foundry(MODEL_ALIAS, _device)
+                client = OpenAI(base_url=manager.endpoint, api_key=manager.api_key)
+                DEFAULT_MODEL = MODEL_ID
+                FOUNDRY_AVAILABLE = True
+                print(f"  Loaded via SDK ({_label}, try {_try + 1}): {MODEL_ID} @ {manager.endpoint}", flush=True)
+                break
+            except Exception as _err:
+                print(f"  {_label} init try {_try + 1}/3 failed: {type(_err).__name__}: {_err}", flush=True)
+                if _try < 2:
+                    _t_init.sleep(1)
+        if FOUNDRY_AVAILABLE:
+            break
+    if not FOUNDRY_AVAILABLE:
+        raise RuntimeError("All SDK device attempts failed after retries")
+except Exception as _init_err:
+    # Last resort: keep client as None and let foundry_chat() force a reconnect on first use.
+    # We do NOT silently point at a dead localhost:5272 -- that would mask the real failure.
+    manager = None
+    client = None
+    DEFAULT_MODEL = MODEL_ALIAS
+    print("=" * 70, flush=True)
+    print(f"  ERROR: Foundry SDK init failed: {_init_err}", flush=True)
+    print( "         Model calls will retry SDK init on first request.", flush=True)
+    print("=" * 70, flush=True)
+
+# Loudly warn if we landed on a CPU variant when an NPU one was expected
+if FOUNDRY_AVAILABLE and MODEL_ID:
+    _mid = MODEL_ID.lower()
+    if "generic-cpu" in _mid:
+        _npu_hint = "qwen2.5-7b-instruct-qnn-npu" if SILICON == "qualcomm" else "phi-4-mini-instruct-openvino-npu"
+        print("=" * 70, flush=True)
+        print("  WARNING: Running on CPU. The NPU variant is not loaded --", flush=True)
+        print("           inference will be roughly 10x slower than expected.", flush=True)
+        print(f"  To fix:  foundry model download {_npu_hint}", flush=True)
+        print( "           then restart this app.", flush=True)
+        print("=" * 70, flush=True)
+    elif "openvino-npu" in _mid or "qnn-npu" in _mid:
+        print(f"  Backend: NPU (optimal)", flush=True)
+    elif "openvino-gpu" in _mid or "generic-gpu" in _mid:
+        print(f"  Backend: GPU (NPU not available)", flush=True)
 
 import threading as _threading
 _reconnect_lock = _threading.Lock()
@@ -1182,36 +1235,41 @@ def _reconnect_foundry():
     global client, manager, DEFAULT_MODEL, MODEL_ID, FOUNDRY_AVAILABLE
     with _reconnect_lock:
         try:
-            manager = FoundryLocalManager(MODEL_ALIAS)
-            MODEL_ID = manager.get_model_info(MODEL_ALIAS).id
-            client = OpenAI(base_url=manager.endpoint, api_key=manager.api_key)
-            DEFAULT_MODEL = MODEL_ID
-            FOUNDRY_AVAILABLE = True
-            print(f"  Reconnected to Foundry: {manager.endpoint}", flush=True)
-            return True
-        except Exception:
-            # NPU failed — try GPU
-            try:
-                from foundry_local.api import DeviceType
-                manager = FoundryLocalManager(MODEL_ALIAS, device=DeviceType.GPU)
-                _loaded = manager.list_loaded_models()
-                MODEL_ID = _loaded[0].id if _loaded else manager.get_model_info(MODEL_ALIAS).id
-                client = OpenAI(base_url=manager.endpoint, api_key=manager.api_key)
-                DEFAULT_MODEL = MODEL_ID
-                FOUNDRY_AVAILABLE = True
-                print(f"  Reconnected to Foundry (GPU): {manager.endpoint}", flush=True)
-                return True
-            except Exception as e:
-                print(f"  Reconnect failed: {e}", flush=True)
-                return False
+            from foundry_local.api import DeviceType
+            for _label, _device in (("NPU", DeviceType.NPU), ("GPU", DeviceType.GPU), ("default", None)):
+                try:
+                    manager, MODEL_ID = _load_foundry(MODEL_ALIAS, _device)
+                    client = OpenAI(base_url=manager.endpoint, api_key=manager.api_key)
+                    DEFAULT_MODEL = MODEL_ID
+                    FOUNDRY_AVAILABLE = True
+                    print(f"  Reconnected to Foundry ({_label}): {manager.endpoint} [{MODEL_ID}]", flush=True)
+                    return True
+                except Exception:
+                    continue
+            print(f"  Reconnect failed: all device attempts exhausted", flush=True)
+            return False
+        except Exception as e:
+            print(f"  Reconnect failed: {e}", flush=True)
+            return False
 
 def foundry_chat(retries=1, **kwargs):
-    """Wrapper around client.chat.completions.create with auto-reconnect."""
+    """Wrapper around client.chat.completions.create with auto-reconnect.
+
+    Triggers reconnect on connection errors or when client is missing/unavailable
+    (e.g. SDK init failed at boot, or Foundry restarted on a new port mid-session)."""
+    # If init failed and we never got a working client, force reconnect before first call.
+    if client is None or not FOUNDRY_AVAILABLE:
+        if retries > 0 and _reconnect_foundry():
+            kwargs["model"] = DEFAULT_MODEL
+            return client.chat.completions.create(**kwargs)
+        raise RuntimeError("Foundry is not available and reconnect failed")
     try:
         return client.chat.completions.create(**kwargs)
     except Exception as e:
-        if retries > 0 and ("Connection" in str(type(e).__name__) or "Connection" in str(e)):
-            print(f"  Foundry connection lost, reconnecting...", flush=True)
+        _is_conn = ("Connection" in str(type(e).__name__) or "Connection" in str(e)
+                    or "AttributeError" in str(type(e).__name__))
+        if retries > 0 and _is_conn:
+            print(f"  Foundry connection issue ({type(e).__name__}), reconnecting...", flush=True)
             if _reconnect_foundry():
                 kwargs["model"] = DEFAULT_MODEL
                 return client.chat.completions.create(**kwargs)
@@ -8967,8 +9025,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             var inspStatusDot = document.getElementById("inspStatusDot");
             var inspStatusText = document.getElementById("inspStatusText");
             var inspTokenCount = document.getElementById("inspTokenCount");
-            var recognition = null;
-            var isRecording = false;
+            // (Web Speech recognition state moved to _inspSpeechRecognition / _inspSpeechActive)
 
             // Shared global token counter + operation log — all Meeting Notes IIFEs use this
             if (typeof window._inspTotalTokens === "undefined") window._inspTotalTokens = 0;
@@ -8985,9 +9042,15 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                         time: new Date().toLocaleTimeString()
                     });
                 }
-                // Update bottom bar directly from client-side counter
-                var el = document.getElementById("inspTokenCount");
-                if (el) el.textContent = window._inspTotalTokens + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
+                // Update bottom bar from session-wide stats so it matches the sidebar
+                fetch("/session-stats").then(function(r) { return r.json(); }).then(function(data) {
+                    var displayTokens = Math.max(data.total_tokens || 0, window._inspTotalTokens);
+                    var el = document.getElementById("inspTokenCount");
+                    if (el) el.textContent = displayTokens + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
+                }).catch(function() {
+                    var el = document.getElementById("inspTokenCount");
+                    if (el) el.textContent = window._inspTotalTokens + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
+                });
                 // Show report button after first AI call
                 var rptBtn = document.getElementById("inspAIReportBtn");
                 if (rptBtn && window._inspAILog.length > 0) rptBtn.style.display = "inline-block";
@@ -9007,48 +9070,92 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     // GPT-4o blended rate for cloud cost comparison
                     var cloudRate = 0.00625 / 1000; // per token
 
-                    // Build table from client-side operation log (single source of truth)
-                    var html = "";
-                    var totalTokens = 0;
-                    for (var i = 0; i < log.length; i++) {
-                        var entry = log[i];
-                        totalTokens += entry.tokens;
-                        var cost = entry.tokens ? "$" + (entry.tokens * cloudRate).toFixed(4) : "\u2014";
-                        html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06);">' +
-                            '<td style="padding:8px 10px; color:#fff !important;">' + (i + 1) + '</td>' +
-                            '<td style="padding:8px 10px; color:#fff !important; font-weight:500;">' + entry.op + '</td>' +
-                            '<td style="padding:8px 10px; color:#fff !important; font-size:0.9em;">' + entry.model + '</td>' +
-                            '<td style="padding:8px 10px; text-align:right; color:#22c55e !important; font-weight:600;">' + (entry.tokens ? entry.tokens.toLocaleString() : '\u2014') + '</td>' +
-                            '<td style="padding:8px 10px; text-align:right; color:#ef4444 !important; font-size:0.9em;">' + cost + '</td>' +
-                            '<td style="padding:8px 10px; color:#fff !important; font-size:0.85em;">' + entry.time + '</td>' +
-                            '</tr>';
-                    }
-                    // Total row
-                    var totalCost = (totalTokens * cloudRate).toFixed(4);
-                    html += '<tr style="border-top:2px solid rgba(255,255,255,0.2);">' +
-                        '<td colspan="3" style="padding:10px 10px; color:#fff; font-weight:700; text-align:right;">TOTAL</td>' +
-                        '<td style="padding:10px 10px; text-align:right; color:#22c55e; font-weight:700; font-size:1.05em;">' + totalTokens.toLocaleString() + '</td>' +
-                        '<td style="padding:10px 10px; text-align:right; color:#ef4444; font-weight:700;">$' + totalCost + '</td>' +
-                        '<td></td></tr>';
-                    tbody.innerHTML = html;
+                    // Fetch session-wide stats so headline total matches sidebar savings widget
+                    fetch("/session-stats").then(function(r) { return r.json(); }).then(function(sessionData) {
+                        var sessionTokens = sessionData.total_tokens || 0;
+                        var sessionCalls = sessionData.calls || 0;
+                        var sessionCost = sessionData.cloud_cost_saved || 0;
+                        var sessionCO2 = sessionData.co2_avoided_g || 0;
 
-                    // CO2: ~0.4 Wh per cloud query, 373g CO2/kWh grid average
-                    var aiOps = log.filter(function(e) { return e.tokens > 0; }).length;
-                    var co2Avoided = (aiOps * 0.4 / 1000 * 373).toFixed(1);
-                    var carbonVisible = (typeof window._showCarbon === "function") ? window._showCarbon() : true;
-                    var co2Display = carbonVisible ? "" : "display:none;";
+                        // Build table from client-side operation log (detailed breakdown)
+                        var html = "";
+                        var logTokens = 0;
+                        for (var i = 0; i < log.length; i++) {
+                            var entry = log[i];
+                            logTokens += entry.tokens;
+                            var cost = entry.tokens ? "$" + (entry.tokens * cloudRate).toFixed(4) : "\u2014";
+                            html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06);">' +
+                                '<td style="padding:8px 10px; color:#fff !important;">' + (i + 1) + '</td>' +
+                                '<td style="padding:8px 10px; color:#fff !important; font-weight:500;">' + entry.op + '</td>' +
+                                '<td style="padding:8px 10px; color:#fff !important; font-size:0.9em;">' + entry.model + '</td>' +
+                                '<td style="padding:8px 10px; text-align:right; color:#22c55e !important; font-weight:600;">' + (entry.tokens ? entry.tokens.toLocaleString() : '\u2014') + '</td>' +
+                                '<td style="padding:8px 10px; text-align:right; color:#ef4444 !important; font-size:0.9em;">' + cost + '</td>' +
+                                '<td style="padding:8px 10px; color:#fff !important; font-size:0.85em;">' + entry.time + '</td>' +
+                                '</tr>';
+                        }
+                        // If other tabs used tokens not in this log, show a reconciliation row
+                        var otherTokens = Math.max(0, sessionTokens - logTokens);
+                        if (otherTokens > 0) {
+                            var otherCost = "$" + (otherTokens * cloudRate).toFixed(4);
+                            html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06);">' +
+                                '<td style="padding:8px 10px; color:#999 !important;">\u2014</td>' +
+                                '<td style="padding:8px 10px; color:#999 !important; font-weight:500; font-style:italic;">Other session AI calls</td>' +
+                                '<td style="padding:8px 10px; color:#999 !important; font-size:0.9em;">Phi-4 Mini</td>' +
+                                '<td style="padding:8px 10px; text-align:right; color:#22c55e !important; font-weight:600;">' + otherTokens.toLocaleString() + '</td>' +
+                                '<td style="padding:8px 10px; text-align:right; color:#ef4444 !important; font-size:0.9em;">' + otherCost + '</td>' +
+                                '<td style="padding:8px 10px; color:#999 !important; font-size:0.85em;">\u2014</td>' +
+                                '</tr>';
+                        }
+                        // Use session-wide total so it matches the sidebar savings widget
+                        var grandTotal = Math.max(sessionTokens, logTokens);
+                        var totalCost = (grandTotal * cloudRate).toFixed(4);
+                        html += '<tr style="border-top:2px solid rgba(255,255,255,0.2);">' +
+                            '<td colspan="3" style="padding:10px 10px; color:#fff; font-weight:700; text-align:right;">TOTAL</td>' +
+                            '<td style="padding:10px 10px; text-align:right; color:#22c55e; font-weight:700; font-size:1.05em;">' + grandTotal.toLocaleString() + '</td>' +
+                            '<td style="padding:10px 10px; text-align:right; color:#ef4444; font-weight:700;">$' + totalCost + '</td>' +
+                            '<td></td></tr>';
+                        tbody.innerHTML = html;
 
-                    summary.innerHTML =
-                        '<div style="display:flex; gap:24px; flex-wrap:wrap; justify-content:center;">' +
-                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + totalTokens.toLocaleString() + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Total Tokens</div></div>' +
-                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">$0.00</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">NPU Cost</div></div>' +
-                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#ef4444 !important; text-decoration:line-through;">$' + totalCost + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Cloud Would Cost</div></div>' +
-                        '<div style="text-align:center;' + co2Display + '"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + co2Avoided + 'g</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">CO&#8322; Saved</div></div>' +
-                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">0</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Bytes Transmitted</div></div>' +
-                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + log.length + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">AI Operations</div></div>' +
-                        '</div>';
+                        var carbonVisible = (typeof window._showCarbon === "function") ? window._showCarbon() : true;
+                        var co2Display = carbonVisible ? "" : "display:none;";
 
-                    overlay.style.display = "flex";
+                        summary.innerHTML =
+                            '<div style="display:flex; gap:24px; flex-wrap:wrap; justify-content:center;">' +
+                            '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + grandTotal.toLocaleString() + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Total Tokens</div></div>' +
+                            '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">$0.00</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">NPU Cost</div></div>' +
+                            '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#ef4444 !important; text-decoration:line-through;">$' + (grandTotal * cloudRate).toFixed(2) + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Cloud Would Cost</div></div>' +
+                            '<div style="text-align:center;' + co2Display + '"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + sessionCO2.toFixed(1) + 'g</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">CO&#8322; Saved</div></div>' +
+                            '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">0</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Bytes Transmitted</div></div>' +
+                            '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + Math.max(sessionCalls, log.length) + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">AI Operations</div></div>' +
+                            '</div>';
+
+                        overlay.style.display = "flex";
+                    }).catch(function() {
+                        // Fallback: use client-side log only (offline or fetch failure)
+                        var html = "";
+                        var totalTokens = 0;
+                        for (var i = 0; i < log.length; i++) {
+                            var entry = log[i];
+                            totalTokens += entry.tokens;
+                            var cost = entry.tokens ? "$" + (entry.tokens * cloudRate).toFixed(4) : "\u2014";
+                            html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06);">' +
+                                '<td style="padding:8px 10px; color:#fff !important;">' + (i + 1) + '</td>' +
+                                '<td style="padding:8px 10px; color:#fff !important; font-weight:500;">' + entry.op + '</td>' +
+                                '<td style="padding:8px 10px; color:#fff !important; font-size:0.9em;">' + entry.model + '</td>' +
+                                '<td style="padding:8px 10px; text-align:right; color:#22c55e !important; font-weight:600;">' + (entry.tokens ? entry.tokens.toLocaleString() : '\u2014') + '</td>' +
+                                '<td style="padding:8px 10px; text-align:right; color:#ef4444 !important; font-size:0.9em;">' + cost + '</td>' +
+                                '<td style="padding:8px 10px; color:#fff !important; font-size:0.85em;">' + entry.time + '</td>' +
+                                '</tr>';
+                        }
+                        var totalCost = (totalTokens * cloudRate).toFixed(4);
+                        html += '<tr style="border-top:2px solid rgba(255,255,255,0.2);">' +
+                            '<td colspan="3" style="padding:10px 10px; color:#fff; font-weight:700; text-align:right;">TOTAL</td>' +
+                            '<td style="padding:10px 10px; text-align:right; color:#22c55e; font-weight:700; font-size:1.05em;">' + totalTokens.toLocaleString() + '</td>' +
+                            '<td style="padding:10px 10px; text-align:right; color:#ef4444; font-weight:700;">$' + totalCost + '</td>' +
+                            '<td></td></tr>';
+                        tbody.innerHTML = html;
+                        overlay.style.display = "flex";
+                    });
                 });
 
                 closeBtn.addEventListener("click", function() {
@@ -9162,22 +9269,89 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 });
             }
 
-            // --- Fluid Dictation — opens Windows Voice Typing (Win+H) via backend ---
+            // --- Fluid Dictation — Win+H with Web Speech API fallback ---
             var inspFluidDictationBtn = document.getElementById("inspFluidDictationBtn");
+            var _inspSpeechRecognition = null;
+            var _inspSpeechActive = false;
             if (inspFluidDictationBtn) {
                 inspFluidDictationBtn.addEventListener("click", function() {
+                    // If Web Speech API session is active, stop it
+                    if (_inspSpeechActive && _inspSpeechRecognition) {
+                        _inspSpeechRecognition.stop();
+                        _inspSpeechActive = false;
+                        inspFluidDictationBtn.style.opacity = "1";
+                        setInspStatus("Dictation stopped", false);
+                        return;
+                    }
                     // Refocus the textarea so Voice Typing has an active text field
                     if (inspTranscriptInput) inspTranscriptInput.focus();
-                    // Small delay to let focus settle before Win+H fires
+                    // Try Win+H first, then fall back to Web Speech API
                     setTimeout(function() {
                         fetch("/inspection/fluid-dictation", { method: "POST" })
                             .then(function(r) { return r.json(); })
                             .then(function(data) {
-                                if (data.error) setInspStatus("Could not open Voice Typing: " + data.error, false);
+                                if (data.error) {
+                                    // Win+H failed — fall back to Web Speech API
+                                    _startWebSpeechFallback();
+                                }
                             })
-                            .catch(function() { setInspStatus("Could not open Voice Typing", false); });
+                            .catch(function() {
+                                // Server unreachable — fall back to Web Speech API
+                                _startWebSpeechFallback();
+                            });
                     }, 150);
                 });
+            }
+
+            // Web Speech API fallback for dictation (used when Win+H fails)
+            function _startWebSpeechFallback() {
+                var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRecognition) {
+                    setInspStatus("Speech recognition not supported in this browser", false);
+                    return;
+                }
+                if (!_inspSpeechRecognition) {
+                    _inspSpeechRecognition = new SpeechRecognition();
+                    _inspSpeechRecognition.continuous = true;
+                    _inspSpeechRecognition.interimResults = true;
+                    _inspSpeechRecognition.lang = "en-US";
+
+                    _inspSpeechRecognition.onresult = function(event) {
+                        var finalText = "";
+                        for (var i = event.resultIndex; i < event.results.length; i++) {
+                            if (event.results[i].isFinal) {
+                                finalText += event.results[i][0].transcript;
+                            }
+                        }
+                        if (finalText.trim() && inspTranscriptInput) {
+                            var current = inspTranscriptInput.value;
+                            inspTranscriptInput.value = current + (current ? " " : "") + finalText.trim();
+                            inspTranscriptInput.scrollTop = inspTranscriptInput.scrollHeight;
+                        }
+                    };
+                    _inspSpeechRecognition.onerror = function(event) {
+                        if (event.error === "no-speech" || event.error === "aborted") return;
+                        setInspStatus("Mic error: " + event.error, false);
+                        _inspSpeechActive = false;
+                        if (inspFluidDictationBtn) inspFluidDictationBtn.style.opacity = "1";
+                    };
+                    _inspSpeechRecognition.onend = function() {
+                        // Auto-restart if still in dictation mode
+                        if (_inspSpeechActive) {
+                            try { _inspSpeechRecognition.start(); } catch(e) {}
+                        } else {
+                            if (inspFluidDictationBtn) inspFluidDictationBtn.style.opacity = "1";
+                        }
+                    };
+                }
+                try {
+                    _inspSpeechRecognition.start();
+                    _inspSpeechActive = true;
+                    if (inspFluidDictationBtn) inspFluidDictationBtn.style.opacity = "0.6";
+                    setInspStatus("Listening... click mic again to stop", false);
+                } catch(e) {
+                    setInspStatus("Could not start speech recognition: " + e.message, false);
+                }
             }
 
             // --- Scripted input (demo safety net) — typewriter effect then extracts ---

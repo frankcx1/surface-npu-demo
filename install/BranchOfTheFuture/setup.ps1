@@ -391,11 +391,26 @@ Step "Model cache ($modelLabel)" -Check {
         # Resolve foundry.exe full path so child processes don't depend on PATH
         $foundryExe = (Get-Command foundry -ErrorAction Stop).Source
 
+        # Start Foundry service in background (fire-and-forget -- it's a long-running daemon)
         Write-Host "   Starting Foundry Local service..." -ForegroundColor Gray
-        $svcProc = Start-Process -FilePath $foundryExe -ArgumentList "service", "start" `
-            -WindowStyle Hidden -PassThru
-        $svcProc | Wait-Process -Timeout 60 -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
+        Start-Process -FilePath $foundryExe -ArgumentList "service", "start" `
+            -WindowStyle Hidden
+
+        # Wait for the service to be ready (check the catalog endpoint)
+        $svcReady = $false
+        for ($i = 0; $i -lt 30; $i++) {
+            try {
+                $catalog = & $foundryExe catalog ls 2>&1
+                if ($LASTEXITCODE -eq 0 -and $catalog -match "phi|qwen") {
+                    $svcReady = $true
+                    break
+                }
+            } catch {}
+            Start-Sleep -Seconds 2
+        }
+        if (-not $svcReady) {
+            Write-Host "   [WARN] Foundry service may not be fully ready (continuing anyway)" -ForegroundColor Yellow
+        }
 
         # Launch model download in a separate visible window so its native
         # progress bar renders there, while we show a spinner here.
@@ -404,20 +419,43 @@ Step "Model cache ($modelLabel)" -Check {
             -ArgumentList "model", "download", $modelAlias `
             -PassThru
 
-        # Spinner in this window while the download runs
+        # Spinner with timeout (15 min max) and periodic cache check
+        # The download process can hang after completing the download
+        # (it may try to load the model). We verify via cache instead.
         $spinChars = @('|', '/', '-', '\')
         $spinIdx = 0
+        $maxSeconds = 900  # 15 min
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        while (-not $dlProc.HasExited) {
+        $modelCached = $false
+        while (-not $dlProc.HasExited -and $sw.Elapsed.TotalSeconds -lt $maxSeconds) {
             $elapsed = $sw.Elapsed.ToString("mm\:ss")
             $spin = $spinChars[$spinIdx % 4]
             Write-Host "`r   $spin Downloading model... [$elapsed elapsed]   " -ForegroundColor Cyan -NoNewline
             $spinIdx++
             Start-Sleep -Seconds 5
+
+            # Every 30s, check if model appeared in cache (download done, load may be hanging)
+            if ($spinIdx % 6 -eq 0) {
+                $cacheCheck = foundry cache ls 2>&1
+                if ($cacheCheck -match [regex]::Escape($modelAlias)) {
+                    $modelCached = $true
+                    Write-Host "" # newline after spinner
+                    Write-Host "   Model is cached. Stopping download process..." -ForegroundColor Green
+                    try { $dlProc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
+                    break
+                }
+            }
         }
         Write-Host ""
         $sw.Stop()
         $totalTime = $sw.Elapsed.ToString("mm\:ss")
+
+        # If we hit the timeout, kill the download process and check cache
+        if (-not $dlProc.HasExited -and -not $modelCached) {
+            Write-Host "   Download timed out after $totalTime. Checking cache..." -ForegroundColor Yellow
+            try { $dlProc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
+            Start-Sleep -Seconds 2
+        }
 
         # Verify model is cached
         $cache = foundry cache ls 2>&1
@@ -489,18 +527,26 @@ $shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) "Branch of t
 Step "Desktop shortcut" -Check {
     return (Test-Path $shortcutPath)
 } -Install {
-    # Create a launcher script that starts the app and opens the browser
+    # Create a launcher script. The browser is opened by a background watcher
+    # (_browser-launcher.ps1) that waits for Flask to bind port 5000, so users
+    # don't see a "site can't be reached" page during model warmup.
     $launcherPath = Join-Path $ScriptDir "start-demo.cmd"
     $launcherContent = @"
 @echo off
 title Branch of the Future
 cd /d "$ScriptDir"
-start "" "http://localhost:5000" 2>nul
-call run.bat
+
+REM Background watcher: waits for Flask to bind port 5000, then opens the browser.
+start "" /b powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0_browser-launcher.ps1"
+
+call "%~dp0run.bat"
 "@
     [System.IO.File]::WriteAllText($launcherPath, $launcherContent, [System.Text.UTF8Encoding]::new($false))
 
-    # Create the desktop shortcut via WScript.Shell COM
+    # Create the desktop shortcut via WScript.Shell COM.
+    # Do NOT set the RunAsAdmin flag -- the Flask app and Foundry Local both
+    # run per-user, and elevation causes named-pipe IPC isolation that can
+    # stall Foundry SDK calls.
     try {
         $ws = New-Object -ComObject WScript.Shell
         $sc = $ws.CreateShortcut($shortcutPath)
@@ -508,14 +554,11 @@ call run.bat
         $sc.WorkingDirectory = $ScriptDir
         $sc.Description = "Launch Branch of the Future (NPU Demo)"
         $sc.WindowStyle = 1  # Normal window
-        # Use a bank/building icon from Windows system icons
-        $sc.IconLocation = "%SystemRoot%\System32\shell32.dll,145"
+        $icoPath = Join-Path $ScriptDir "favicon.ico"
+        if (Test-Path $icoPath) {
+            $sc.IconLocation = "$icoPath,0"
+        }
         $sc.Save()
-
-        # Set shortcut to run as administrator (byte 0x15 = 0x20 flag)
-        $bytes = [System.IO.File]::ReadAllBytes($shortcutPath)
-        $bytes[0x15] = $bytes[0x15] -bor 0x20
-        [System.IO.File]::WriteAllBytes($shortcutPath, $bytes)
         Write-Host "   Created: $shortcutPath" -ForegroundColor Gray
     } catch {
         Write-Host "   [WARN] Could not create shortcut: $_" -ForegroundColor Yellow

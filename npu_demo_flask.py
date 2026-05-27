@@ -1147,6 +1147,21 @@ else:
     MODEL_ALIAS = "phi-4-mini"
     MODEL_LABEL = "Phi-4 Mini"
 
+# --- Elevation check (RunAsAdmin breaks Foundry named-pipe IPC) ---
+try:
+    import ctypes as _ctypes
+    if _ctypes.windll.shell32.IsUserAnAdmin():
+        print("=" * 70, flush=True)
+        print("  WARNING: Running as Administrator!", flush=True)
+        print("  Foundry Local uses per-user named pipes. Elevation causes IPC", flush=True)
+        print("  isolation that stalls model calls (especially consecutive ones", flush=True)
+        print("  like Prep Next Client).", flush=True)
+        print("  FIX: Right-click desktop shortcut > Properties > Advanced >", flush=True)
+        print("       uncheck 'Run as administrator', then relaunch.", flush=True)
+        print("=" * 70, flush=True)
+except Exception:
+    pass  # Non-Windows or ctypes unavailable — skip check
+
 # --- Model initialization via Foundry Local SDK (NPU -> GPU -> SDK-default) ---
 print(f"Starting Foundry Local runtime (model: {MODEL_ALIAS})...", flush=True)
 FOUNDRY_AVAILABLE = False
@@ -9010,8 +9025,7 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             var inspStatusDot = document.getElementById("inspStatusDot");
             var inspStatusText = document.getElementById("inspStatusText");
             var inspTokenCount = document.getElementById("inspTokenCount");
-            var recognition = null;
-            var isRecording = false;
+            // (Web Speech recognition state moved to _inspSpeechRecognition / _inspSpeechActive)
 
             // Shared global token counter + operation log — all Meeting Notes IIFEs use this
             if (typeof window._inspTotalTokens === "undefined") window._inspTotalTokens = 0;
@@ -9028,9 +9042,15 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                         time: new Date().toLocaleTimeString()
                     });
                 }
-                // Update bottom bar directly from client-side counter
-                var el = document.getElementById("inspTokenCount");
-                if (el) el.textContent = window._inspTotalTokens + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
+                // Update bottom bar from session-wide stats so it matches the sidebar
+                fetch("/session-stats").then(function(r) { return r.json(); }).then(function(data) {
+                    var displayTokens = Math.max(data.total_tokens || 0, window._inspTotalTokens);
+                    var el = document.getElementById("inspTokenCount");
+                    if (el) el.textContent = displayTokens + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
+                }).catch(function() {
+                    var el = document.getElementById("inspTokenCount");
+                    if (el) el.textContent = window._inspTotalTokens + " local tokens \u00b7 $0.00 cloud cost \u00b7 0 bytes transmitted";
+                });
                 // Show report button after first AI call
                 var rptBtn = document.getElementById("inspAIReportBtn");
                 if (rptBtn && window._inspAILog.length > 0) rptBtn.style.display = "inline-block";
@@ -9050,48 +9070,92 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                     // GPT-4o blended rate for cloud cost comparison
                     var cloudRate = 0.00625 / 1000; // per token
 
-                    // Build table from client-side operation log (single source of truth)
-                    var html = "";
-                    var totalTokens = 0;
-                    for (var i = 0; i < log.length; i++) {
-                        var entry = log[i];
-                        totalTokens += entry.tokens;
-                        var cost = entry.tokens ? "$" + (entry.tokens * cloudRate).toFixed(4) : "\u2014";
-                        html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06);">' +
-                            '<td style="padding:8px 10px; color:#fff !important;">' + (i + 1) + '</td>' +
-                            '<td style="padding:8px 10px; color:#fff !important; font-weight:500;">' + entry.op + '</td>' +
-                            '<td style="padding:8px 10px; color:#fff !important; font-size:0.9em;">' + entry.model + '</td>' +
-                            '<td style="padding:8px 10px; text-align:right; color:#22c55e !important; font-weight:600;">' + (entry.tokens ? entry.tokens.toLocaleString() : '\u2014') + '</td>' +
-                            '<td style="padding:8px 10px; text-align:right; color:#ef4444 !important; font-size:0.9em;">' + cost + '</td>' +
-                            '<td style="padding:8px 10px; color:#fff !important; font-size:0.85em;">' + entry.time + '</td>' +
-                            '</tr>';
-                    }
-                    // Total row
-                    var totalCost = (totalTokens * cloudRate).toFixed(4);
-                    html += '<tr style="border-top:2px solid rgba(255,255,255,0.2);">' +
-                        '<td colspan="3" style="padding:10px 10px; color:#fff; font-weight:700; text-align:right;">TOTAL</td>' +
-                        '<td style="padding:10px 10px; text-align:right; color:#22c55e; font-weight:700; font-size:1.05em;">' + totalTokens.toLocaleString() + '</td>' +
-                        '<td style="padding:10px 10px; text-align:right; color:#ef4444; font-weight:700;">$' + totalCost + '</td>' +
-                        '<td></td></tr>';
-                    tbody.innerHTML = html;
+                    // Fetch session-wide stats so headline total matches sidebar savings widget
+                    fetch("/session-stats").then(function(r) { return r.json(); }).then(function(sessionData) {
+                        var sessionTokens = sessionData.total_tokens || 0;
+                        var sessionCalls = sessionData.calls || 0;
+                        var sessionCost = sessionData.cloud_cost_saved || 0;
+                        var sessionCO2 = sessionData.co2_avoided_g || 0;
 
-                    // CO2: ~0.4 Wh per cloud query, 373g CO2/kWh grid average
-                    var aiOps = log.filter(function(e) { return e.tokens > 0; }).length;
-                    var co2Avoided = (aiOps * 0.4 / 1000 * 373).toFixed(1);
-                    var carbonVisible = (typeof window._showCarbon === "function") ? window._showCarbon() : true;
-                    var co2Display = carbonVisible ? "" : "display:none;";
+                        // Build table from client-side operation log (detailed breakdown)
+                        var html = "";
+                        var logTokens = 0;
+                        for (var i = 0; i < log.length; i++) {
+                            var entry = log[i];
+                            logTokens += entry.tokens;
+                            var cost = entry.tokens ? "$" + (entry.tokens * cloudRate).toFixed(4) : "\u2014";
+                            html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06);">' +
+                                '<td style="padding:8px 10px; color:#fff !important;">' + (i + 1) + '</td>' +
+                                '<td style="padding:8px 10px; color:#fff !important; font-weight:500;">' + entry.op + '</td>' +
+                                '<td style="padding:8px 10px; color:#fff !important; font-size:0.9em;">' + entry.model + '</td>' +
+                                '<td style="padding:8px 10px; text-align:right; color:#22c55e !important; font-weight:600;">' + (entry.tokens ? entry.tokens.toLocaleString() : '\u2014') + '</td>' +
+                                '<td style="padding:8px 10px; text-align:right; color:#ef4444 !important; font-size:0.9em;">' + cost + '</td>' +
+                                '<td style="padding:8px 10px; color:#fff !important; font-size:0.85em;">' + entry.time + '</td>' +
+                                '</tr>';
+                        }
+                        // If other tabs used tokens not in this log, show a reconciliation row
+                        var otherTokens = Math.max(0, sessionTokens - logTokens);
+                        if (otherTokens > 0) {
+                            var otherCost = "$" + (otherTokens * cloudRate).toFixed(4);
+                            html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06);">' +
+                                '<td style="padding:8px 10px; color:#999 !important;">\u2014</td>' +
+                                '<td style="padding:8px 10px; color:#999 !important; font-weight:500; font-style:italic;">Other session AI calls</td>' +
+                                '<td style="padding:8px 10px; color:#999 !important; font-size:0.9em;">Phi-4 Mini</td>' +
+                                '<td style="padding:8px 10px; text-align:right; color:#22c55e !important; font-weight:600;">' + otherTokens.toLocaleString() + '</td>' +
+                                '<td style="padding:8px 10px; text-align:right; color:#ef4444 !important; font-size:0.9em;">' + otherCost + '</td>' +
+                                '<td style="padding:8px 10px; color:#999 !important; font-size:0.85em;">\u2014</td>' +
+                                '</tr>';
+                        }
+                        // Use session-wide total so it matches the sidebar savings widget
+                        var grandTotal = Math.max(sessionTokens, logTokens);
+                        var totalCost = (grandTotal * cloudRate).toFixed(4);
+                        html += '<tr style="border-top:2px solid rgba(255,255,255,0.2);">' +
+                            '<td colspan="3" style="padding:10px 10px; color:#fff; font-weight:700; text-align:right;">TOTAL</td>' +
+                            '<td style="padding:10px 10px; text-align:right; color:#22c55e; font-weight:700; font-size:1.05em;">' + grandTotal.toLocaleString() + '</td>' +
+                            '<td style="padding:10px 10px; text-align:right; color:#ef4444; font-weight:700;">$' + totalCost + '</td>' +
+                            '<td></td></tr>';
+                        tbody.innerHTML = html;
 
-                    summary.innerHTML =
-                        '<div style="display:flex; gap:24px; flex-wrap:wrap; justify-content:center;">' +
-                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + totalTokens.toLocaleString() + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Total Tokens</div></div>' +
-                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">$0.00</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">NPU Cost</div></div>' +
-                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#ef4444 !important; text-decoration:line-through;">$' + totalCost + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Cloud Would Cost</div></div>' +
-                        '<div style="text-align:center;' + co2Display + '"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + co2Avoided + 'g</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">CO&#8322; Saved</div></div>' +
-                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">0</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Bytes Transmitted</div></div>' +
-                        '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + log.length + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">AI Operations</div></div>' +
-                        '</div>';
+                        var carbonVisible = (typeof window._showCarbon === "function") ? window._showCarbon() : true;
+                        var co2Display = carbonVisible ? "" : "display:none;";
 
-                    overlay.style.display = "flex";
+                        summary.innerHTML =
+                            '<div style="display:flex; gap:24px; flex-wrap:wrap; justify-content:center;">' +
+                            '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + grandTotal.toLocaleString() + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Total Tokens</div></div>' +
+                            '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">$0.00</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">NPU Cost</div></div>' +
+                            '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#ef4444 !important; text-decoration:line-through;">$' + (grandTotal * cloudRate).toFixed(2) + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Cloud Would Cost</div></div>' +
+                            '<div style="text-align:center;' + co2Display + '"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + sessionCO2.toFixed(1) + 'g</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">CO&#8322; Saved</div></div>' +
+                            '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">0</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">Bytes Transmitted</div></div>' +
+                            '<div style="text-align:center;"><div style="font-size:1.6em; font-weight:700; color:#22c55e !important;">' + Math.max(sessionCalls, log.length) + '</div><div style="font-size:0.75em; color:#ccc !important; text-transform:uppercase; letter-spacing:0.5px;">AI Operations</div></div>' +
+                            '</div>';
+
+                        overlay.style.display = "flex";
+                    }).catch(function() {
+                        // Fallback: use client-side log only (offline or fetch failure)
+                        var html = "";
+                        var totalTokens = 0;
+                        for (var i = 0; i < log.length; i++) {
+                            var entry = log[i];
+                            totalTokens += entry.tokens;
+                            var cost = entry.tokens ? "$" + (entry.tokens * cloudRate).toFixed(4) : "\u2014";
+                            html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06);">' +
+                                '<td style="padding:8px 10px; color:#fff !important;">' + (i + 1) + '</td>' +
+                                '<td style="padding:8px 10px; color:#fff !important; font-weight:500;">' + entry.op + '</td>' +
+                                '<td style="padding:8px 10px; color:#fff !important; font-size:0.9em;">' + entry.model + '</td>' +
+                                '<td style="padding:8px 10px; text-align:right; color:#22c55e !important; font-weight:600;">' + (entry.tokens ? entry.tokens.toLocaleString() : '\u2014') + '</td>' +
+                                '<td style="padding:8px 10px; text-align:right; color:#ef4444 !important; font-size:0.9em;">' + cost + '</td>' +
+                                '<td style="padding:8px 10px; color:#fff !important; font-size:0.85em;">' + entry.time + '</td>' +
+                                '</tr>';
+                        }
+                        var totalCost = (totalTokens * cloudRate).toFixed(4);
+                        html += '<tr style="border-top:2px solid rgba(255,255,255,0.2);">' +
+                            '<td colspan="3" style="padding:10px 10px; color:#fff; font-weight:700; text-align:right;">TOTAL</td>' +
+                            '<td style="padding:10px 10px; text-align:right; color:#22c55e; font-weight:700; font-size:1.05em;">' + totalTokens.toLocaleString() + '</td>' +
+                            '<td style="padding:10px 10px; text-align:right; color:#ef4444; font-weight:700;">$' + totalCost + '</td>' +
+                            '<td></td></tr>';
+                        tbody.innerHTML = html;
+                        overlay.style.display = "flex";
+                    });
                 });
 
                 closeBtn.addEventListener("click", function() {
@@ -9205,22 +9269,89 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
                 });
             }
 
-            // --- Fluid Dictation — opens Windows Voice Typing (Win+H) via backend ---
+            // --- Fluid Dictation — Win+H with Web Speech API fallback ---
             var inspFluidDictationBtn = document.getElementById("inspFluidDictationBtn");
+            var _inspSpeechRecognition = null;
+            var _inspSpeechActive = false;
             if (inspFluidDictationBtn) {
                 inspFluidDictationBtn.addEventListener("click", function() {
+                    // If Web Speech API session is active, stop it
+                    if (_inspSpeechActive && _inspSpeechRecognition) {
+                        _inspSpeechRecognition.stop();
+                        _inspSpeechActive = false;
+                        inspFluidDictationBtn.style.opacity = "1";
+                        setInspStatus("Dictation stopped", false);
+                        return;
+                    }
                     // Refocus the textarea so Voice Typing has an active text field
                     if (inspTranscriptInput) inspTranscriptInput.focus();
-                    // Small delay to let focus settle before Win+H fires
+                    // Try Win+H first, then fall back to Web Speech API
                     setTimeout(function() {
                         fetch("/inspection/fluid-dictation", { method: "POST" })
                             .then(function(r) { return r.json(); })
                             .then(function(data) {
-                                if (data.error) setInspStatus("Could not open Voice Typing: " + data.error, false);
+                                if (data.error) {
+                                    // Win+H failed — fall back to Web Speech API
+                                    _startWebSpeechFallback();
+                                }
                             })
-                            .catch(function() { setInspStatus("Could not open Voice Typing", false); });
+                            .catch(function() {
+                                // Server unreachable — fall back to Web Speech API
+                                _startWebSpeechFallback();
+                            });
                     }, 150);
                 });
+            }
+
+            // Web Speech API fallback for dictation (used when Win+H fails)
+            function _startWebSpeechFallback() {
+                var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRecognition) {
+                    setInspStatus("Speech recognition not supported in this browser", false);
+                    return;
+                }
+                if (!_inspSpeechRecognition) {
+                    _inspSpeechRecognition = new SpeechRecognition();
+                    _inspSpeechRecognition.continuous = true;
+                    _inspSpeechRecognition.interimResults = true;
+                    _inspSpeechRecognition.lang = "en-US";
+
+                    _inspSpeechRecognition.onresult = function(event) {
+                        var finalText = "";
+                        for (var i = event.resultIndex; i < event.results.length; i++) {
+                            if (event.results[i].isFinal) {
+                                finalText += event.results[i][0].transcript;
+                            }
+                        }
+                        if (finalText.trim() && inspTranscriptInput) {
+                            var current = inspTranscriptInput.value;
+                            inspTranscriptInput.value = current + (current ? " " : "") + finalText.trim();
+                            inspTranscriptInput.scrollTop = inspTranscriptInput.scrollHeight;
+                        }
+                    };
+                    _inspSpeechRecognition.onerror = function(event) {
+                        if (event.error === "no-speech" || event.error === "aborted") return;
+                        setInspStatus("Mic error: " + event.error, false);
+                        _inspSpeechActive = false;
+                        if (inspFluidDictationBtn) inspFluidDictationBtn.style.opacity = "1";
+                    };
+                    _inspSpeechRecognition.onend = function() {
+                        // Auto-restart if still in dictation mode
+                        if (_inspSpeechActive) {
+                            try { _inspSpeechRecognition.start(); } catch(e) {}
+                        } else {
+                            if (inspFluidDictationBtn) inspFluidDictationBtn.style.opacity = "1";
+                        }
+                    };
+                }
+                try {
+                    _inspSpeechRecognition.start();
+                    _inspSpeechActive = true;
+                    if (inspFluidDictationBtn) inspFluidDictationBtn.style.opacity = "0.6";
+                    setInspStatus("Listening... click mic again to stop", false);
+                } catch(e) {
+                    setInspStatus("Could not start speech recognition: " + e.message, false);
+                }
             }
 
             // --- Scripted input (demo safety net) — typewriter effect then extracts ---
