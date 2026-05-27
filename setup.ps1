@@ -387,88 +387,218 @@ Step "Model cache ($modelLabel)" -Check {
     Write-Host "   This step typically takes 5-10 minutes depending on bandwidth." -ForegroundColor Gray
     Write-Host "   (Safe to stop and restart -- download resumes where it left off)" -ForegroundColor Gray
     Write-Host ""
+
+    # Diagnostics log file — captures everything for post-mortem analysis
+    $diagLog = Join-Path $env:TEMP "botf_model_download_diag.log"
+    function Diag {
+        param([string]$Msg)
+        $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
+        $line = "[$ts] $Msg"
+        Write-Host "   [DIAG] $Msg" -ForegroundColor DarkGray
+        try { Add-Content -Path $diagLog -Value $line -ErrorAction SilentlyContinue } catch {}
+    }
+
+    Diag "=== Model download diagnostics start ==="
+    Diag "Model alias: $modelAlias"
+    Diag "Diag log: $diagLog"
+
     try {
         # Resolve foundry.exe full path so child processes don't depend on PATH
         $foundryExe = (Get-Command foundry -ErrorAction Stop).Source
+        Diag "foundry.exe resolved to: $foundryExe"
+        Diag "Is App Execution Alias: $($foundryExe -like '*WindowsApps*')"
+        Diag "File exists: $(Test-Path $foundryExe)"
+        if (Test-Path $foundryExe) {
+            $fInfo = Get-Item $foundryExe -ErrorAction SilentlyContinue
+            Diag "File size: $($fInfo.Length) bytes, LastWrite: $($fInfo.LastWriteTime)"
+        }
+
+        # Check foundry version
+        $fVer = & $foundryExe --version 2>&1
+        Diag "foundry --version: $fVer (exit code: $LASTEXITCODE)"
 
         # Start Foundry service in background (fire-and-forget -- it's a long-running daemon)
         Write-Host "   Starting Foundry Local service..." -ForegroundColor Gray
+        Diag "Starting foundry service start..."
+        $svcStartTime = Get-Date
         Start-Process -FilePath $foundryExe -ArgumentList "service", "start" `
             -WindowStyle Hidden
+        Diag "service start launched (fire-and-forget)"
 
-        # Wait for the service to be ready (check the catalog endpoint)
+        # Check for Foundry service process
+        Start-Sleep -Seconds 2
+        $svcProcs = Get-Process -Name "Inference.Service.Agent*", "foundry*" -ErrorAction SilentlyContinue
+        Diag "Foundry-related processes after 2s: $($svcProcs | ForEach-Object { '{0}(PID:{1})' -f $_.ProcessName, $_.Id } | Join-String -Separator ', ')"
+
+        # Wait for the service to be ready (check model list endpoint)
         $svcReady = $false
+        Diag "Waiting for service readiness (foundry model ls)..."
         for ($i = 0; $i -lt 30; $i++) {
             try {
-                $catalog = & $foundryExe catalog ls 2>&1
-                if ($LASTEXITCODE -eq 0 -and $catalog -match "phi|qwen") {
+                $models = & $foundryExe model ls 2>&1
+                $modelsStr = ($models | Out-String).Trim()
+                if ($LASTEXITCODE -eq 0 -and ($models -match "phi|qwen|model")) {
                     $svcReady = $true
+                    $svcReadyTime = ((Get-Date) - $svcStartTime).TotalSeconds
+                    Diag "Service ready after ${svcReadyTime}s (iteration $i). Output: $($modelsStr.Substring(0, [Math]::Min(200, $modelsStr.Length)))"
                     break
                 }
-            } catch {}
+                if ($i % 5 -eq 0) {
+                    Diag "model ls attempt $i — exit code: $LASTEXITCODE, output: $($modelsStr.Substring(0, [Math]::Min(150, $modelsStr.Length)))"
+                }
+            } catch {
+                if ($i % 5 -eq 0) { Diag "model ls attempt $i threw: $_" }
+            }
             Start-Sleep -Seconds 2
         }
         if (-not $svcReady) {
+            Diag "Service NOT ready after 60s of polling"
             Write-Host "   [WARN] Foundry service may not be fully ready (continuing anyway)" -ForegroundColor Yellow
         }
 
-        # Launch model download in a separate visible window so its native
-        # progress bar renders there, while we show a spinner here.
-        Write-Host "   Downloading in a separate window (you may see a second console)..." -ForegroundColor Gray
-        $dlProc = Start-Process -FilePath $foundryExe `
-            -ArgumentList "model", "download", $modelAlias `
-            -PassThru
+        # Pre-download: check cache state
+        $preCacheOutput = & $foundryExe cache ls 2>&1
+        Diag "Cache BEFORE download: $($preCacheOutput | Out-String)".Trim().Substring(0, [Math]::Min(300, ($preCacheOutput | Out-String).Length))
 
-        # Spinner with timeout (15 min max) and periodic cache check
-        # The download process can hang after completing the download
-        # (it may try to load the model). We verify via cache instead.
+        # Launch model download in a separate visible window
+        Write-Host "   Downloading in a separate window (you may see a second console)..." -ForegroundColor Gray
+        $dlProc = $null
+        try {
+            Diag "Launching: Start-Process $foundryExe model download $modelAlias"
+            $dlProc = Start-Process -FilePath $foundryExe `
+                -ArgumentList "model", "download", $modelAlias `
+                -PassThru
+            if ($dlProc) {
+                Diag "Download process started — PID: $($dlProc.Id), Name: $($dlProc.ProcessName)"
+                Write-Host "   Download process PID: $($dlProc.Id)" -ForegroundColor Gray
+            } else {
+                Diag "Start-Process returned null — no process object"
+            }
+        } catch {
+            Diag "Start-Process FAILED: $_"
+            Write-Host "   [WARN] Start-Process failed: $_" -ForegroundColor Yellow
+        }
+
+        # Verify the download process is actually alive after 3s
+        Start-Sleep -Seconds 3
+        if ($dlProc) {
+            $dlProc.Refresh()
+            Diag "Download process after 3s — HasExited: $($dlProc.HasExited), Responding: $(try{$dlProc.Responding}catch{'N/A'})"
+            if ($dlProc.HasExited) {
+                Diag "Download process EXITED IMMEDIATELY — ExitCode: $($dlProc.ExitCode)"
+            }
+            # Check if the PID is actually running
+            $procCheck = Get-Process -Id $dlProc.Id -ErrorAction SilentlyContinue
+            Diag "Get-Process by PID $($dlProc.Id): $(if($procCheck){'alive — ' + $procCheck.ProcessName}else{'NOT FOUND'})"
+        }
+
+        # Spinner with timeout (15 min max) and periodic cache check.
+        # Timeout is the PRIMARY guard — a hung process cannot defeat it.
         $spinChars = @('|', '/', '-', '\')
         $spinIdx = 0
         $maxSeconds = 900  # 15 min
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         $modelCached = $false
-        while (-not $dlProc.HasExited -and $sw.Elapsed.TotalSeconds -lt $maxSeconds) {
+        Diag "Entering spinner loop (max ${maxSeconds}s)..."
+        while ($sw.Elapsed.TotalSeconds -lt $maxSeconds) {
+            # Exit early if the download process finished on its own
+            if ($dlProc -and $dlProc.HasExited) {
+                Diag "Download process exited — ExitCode: $($dlProc.ExitCode) at $($sw.Elapsed.ToString('mm\:ss'))"
+                break
+            }
+
             $elapsed = $sw.Elapsed.ToString("mm\:ss")
             $spin = $spinChars[$spinIdx % 4]
             Write-Host "`r   $spin Downloading model... [$elapsed elapsed]   " -ForegroundColor Cyan -NoNewline
             $spinIdx++
             Start-Sleep -Seconds 5
 
-            # Every 30s, check if model appeared in cache (download done, load may be hanging)
+            # Every 30s, check if model appeared in cache
             if ($spinIdx % 6 -eq 0) {
-                $cacheCheck = foundry cache ls 2>&1
-                if ($cacheCheck -match [regex]::Escape($modelAlias)) {
+                $checkStart = Get-Date
+                $cacheCheck = & $foundryExe cache ls 2>&1
+                $checkDuration = ((Get-Date) - $checkStart).TotalSeconds
+                $cacheStr = ($cacheCheck | Out-String).Trim()
+                $cacheHit = $cacheStr -match [regex]::Escape($modelAlias)
+                Diag "Cache check at $elapsed — hit: $cacheHit, took: ${checkDuration}s, exit: $LASTEXITCODE, output: $($cacheStr.Substring(0, [Math]::Min(200, $cacheStr.Length)))"
+
+                if ($cacheHit) {
                     $modelCached = $true
                     Write-Host "" # newline after spinner
                     Write-Host "   Model is cached. Stopping download process..." -ForegroundColor Green
-                    try { $dlProc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
+                    Diag "MODEL CACHED — killing download process"
+                    if ($dlProc -and -not $dlProc.HasExited) {
+                        try { $dlProc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
+                    }
                     break
+                }
+
+                # Also log process state during cache checks
+                if ($dlProc) {
+                    try { $dlProc.Refresh() } catch {}
+                    $procAlive = Get-Process -Id $dlProc.Id -ErrorAction SilentlyContinue
+                    Diag "Download proc state: HasExited=$($dlProc.HasExited), alive=$(if($procAlive){'yes'}else{'no'}), WorkingSet=$(try{'{0:N0}MB' -f ($dlProc.WorkingSet64/1MB)}catch{'N/A'})"
                 }
             }
         }
         Write-Host ""
         $sw.Stop()
         $totalTime = $sw.Elapsed.ToString("mm\:ss")
+        Diag "Spinner loop exited after $totalTime — modelCached: $modelCached"
 
-        # If we hit the timeout, kill the download process and check cache
-        if (-not $dlProc.HasExited -and -not $modelCached) {
-            Write-Host "   Download timed out after $totalTime. Checking cache..." -ForegroundColor Yellow
-            try { $dlProc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
-            Start-Sleep -Seconds 2
+        # If we hit the timeout or Start-Process failed, kill and try inline
+        if (-not $modelCached) {
+            if ($dlProc -and -not $dlProc.HasExited) {
+                Diag "TIMEOUT — killing download process PID $($dlProc.Id)"
+                Write-Host "   Download timed out after $totalTime. Killing process..." -ForegroundColor Yellow
+                try { $dlProc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
+                Start-Sleep -Seconds 2
+            }
+            # Check cache one more time
+            $cacheCheck = & $foundryExe cache ls 2>&1
+            $cacheStr = ($cacheCheck | Out-String).Trim()
+            Diag "Final cache check: $($cacheStr.Substring(0, [Math]::Min(200, $cacheStr.Length)))"
+            if ($cacheCheck -match [regex]::Escape($modelAlias)) {
+                $modelCached = $true
+                Diag "Model found in cache on final check"
+            }
+        }
+
+        # Fallback: run download inline (synchronous) if the window approach failed
+        if (-not $modelCached) {
+            Diag "FALLBACK — running inline download"
+            Write-Host "   Retrying download inline (this may take several minutes)..." -ForegroundColor Yellow
+            $inlineStart = Get-Date
+            & $foundryExe model download $modelAlias 2>&1 | ForEach-Object {
+                Write-Host "   $_" -ForegroundColor Gray
+                Diag "inline: $_"
+            }
+            $inlineDuration = ((Get-Date) - $inlineStart).TotalSeconds
+            Diag "Inline download finished in ${inlineDuration}s — exit code: $LASTEXITCODE"
         }
 
         # Verify model is cached
         $cache = foundry cache ls 2>&1
+        $cacheStr = ($cache | Out-String).Trim()
+        Diag "Final verification — cache ls output: $($cacheStr.Substring(0, [Math]::Min(300, $cacheStr.Length)))"
         if ($cache -match [regex]::Escape($modelAlias)) {
             Write-Host "   Download complete ($totalTime)" -ForegroundColor Green
+            Diag "SUCCESS — model $modelAlias is in cache"
         } else {
             Write-Host "   [WARN] Model may not have downloaded completely." -ForegroundColor Yellow
             Write-Host "   Re-run setup.ps1 to resume, or the app will download on first launch." -ForegroundColor Gray
+            Diag "FAILURE — model $modelAlias NOT in cache after all attempts"
         }
+
+        Diag "=== Model download diagnostics end ==="
+        Write-Host "   Diagnostics saved to: $diagLog" -ForegroundColor Gray
+
     } catch {
         Write-Host ""
         Write-Host "   [WARN] Model download failed: $_" -ForegroundColor Yellow
         Write-Host "   Re-run setup.ps1 to retry (download resumes where it left off)." -ForegroundColor Gray
+        Diag "EXCEPTION: $_"
+        Diag "=== Model download diagnostics end (exception) ==="
     }
 }
 

@@ -13501,19 +13501,26 @@ def chat():
     # Route decision: messages that need tool calling use AGENT_SYSTEM_PROMPT (with tool defs).
     # Free-text banking questions use Marcus persona system prompt (warmer, no tool markers).
     _tool_keywords = [
-        'tool_call', 'TOOL_CALL', 'prep_next_client', 'my_calendar_today',
+        'tool_call', 'prep_next_client', 'my_calendar_today',
         'd365_customer_lookup', 'd365_check_in_queue', 'd365_log_activity',
         'd365_recent_activities', 'read(', 'write(', 'exec(',
-        'Use the prep_next_client', 'Use the my_calendar', 'Use the d365_',
+        'use the prep_next_client', 'use the my_calendar', 'use the d365_',
         'run a command', 'get-childitem', 'get-content',
-        'Show me my calendar', 'What meetings do I have',
+        'show me my calendar', 'what meetings do i have',
+        # Natural language triggers for prep/calendar/D365 tools
+        'prep me', 'prep for', 'prepare for', 'prepare me',
+        'meeting with', 'next client', 'next meeting',
+        'my calendar', 'my schedule', "today's calendar", "today's schedule",
+        'customer queue', 'check-in queue', 'who is waiting',
+        'look up customer', 'look up client', 'pull up',
+        'customer profile', 'client profile',
         # Web search triggers
         'search the web', 'search for', 'look up', 'look online',
         'web search', 'google', 'bing', 'find online', 'search online',
         'what are the current', 'what are the latest', 'latest guidelines',
         'current regulations', 'current rates',
     ]
-    _needs_tools = any(kw in message for kw in _tool_keywords)
+    _needs_tools = any(kw in message.lower() for kw in _tool_keywords)
 
     def generate():
         # Free-text path: Marcus persona + automatic web search enrichment
